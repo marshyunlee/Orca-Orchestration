@@ -19,7 +19,6 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { applyLayout } from "../layout";
-import { effectiveHarness, useConfig } from "../harness";
 import { STATUS_META, type DagResponse, type LayoutKind, type TaskStatus } from "../types";
 
 /** Deterministic PRNG so each node's scribble stays stable across polls. */
@@ -156,7 +155,6 @@ const SCRIBBLE_FADE_STEP = 0.05;
 type TaskNodeData = {  label: string;
   status: TaskStatus;
   selected: boolean;
-  harness: string;
   dir: "LR" | "TB";
   /** paint order on first draw — staggers the entrance so the DAG "grows" */
   index: number;
@@ -256,9 +254,7 @@ function TaskNode({ id, data }: NodeProps<Node<TaskNodeData>>) {
           <span className="dot" style={{ background: meta.color }} />
           {meta.label}
         </div>
-        <span className="task-node__harness" title="This node's harness">
-          {data.harness}
-        </span>
+
       </div>
       {/* hand-drawn sign-off: a tick that draws itself, or a scribbled-out cross */}
       {data.status === "completed" && (
@@ -484,7 +480,6 @@ function Flow({
   reorgNonce: number;
 }) {
   const rf = useReactFlow();
-  const config = useConfig();
   const prevCount = useRef(-1);
   // positions the user has explicitly dragged — preserved across status polls
   const dragged = useRef<Map<string, { x: number; y: number }>>(new Map());
@@ -530,7 +525,6 @@ function Flow({
         label: n.label,
         status: n.status,
         selected: n.id === selectedId,
-        harness: effectiveHarness(n.id),
         dir,
         index: i,
         // deterministic pseudo-random tilt from the paint order: stickers
@@ -579,7 +573,7 @@ function Flow({
       });
     });
     setEdges(laid.edges);
-  }, [dag, selectedId, layout, reorgNonce, config, setNodes, setEdges]);
+  }, [dag, selectedId, layout, reorgNonce, setNodes, setEdges]);
 
   // Auto-fit when the node count changes, so live status polls don't yank the
   // viewport while the user is inspecting (or dragging).
@@ -615,8 +609,7 @@ function Flow({
           Load the <code>orca-dag</code> skill in your agent and talk through what you want to
           build — it will break the work down and draw the graph.
           <br />
-          Tasks and deps grow here stroke by stroke, like crayon — then pick a harness per node and
-          fire.
+          Execution and decisions stay in your coordinator conversation.
         </div>
       </div>
     );

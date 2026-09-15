@@ -1,116 +1,142 @@
 ---
 name: orca-dag
-description: "Plan software work as an Orca orchestration task DAG. Use when the user wants to break a feature or project into an executable graph of tasks with dependencies and approval gates in Orca, then visualize and fire it. Teaches the exact `orca orchestration` CLI commands to build the DAG, the spec-writing conventions, and how to open the orca-dag viewer so the user can pick a harness per node and fire tasks."
+description: "Use when planning an Orca task DAG, turning an accepted group specification into supervised implementation, or extending a delivery through review and progressive increments."
 ---
 
-# orca-dag
+# Orca DAG workflow
 
-Refine a software requirement through conversation and land it as an **Orca orchestration task DAG** (directed acyclic graph). You own **building and reshaping the graph**; **execution is triggered by the user in the `orca-dag` viewer** — the viewer advances the whole graph automatically, in parallel, along its dependencies. It is not fired node by node.
+The conversational coordinator owns execution, questions, decisions, verification,
+and cleanup. The viewer observes native Orca state. Work-vault holds the contract
+and evidence. A Run is a durable namespace/inbox; a Task is work; a Dispatch is
+one authoritative attempt. Task completion does not establish delivery acceptance.
 
-Every planning result **must be written into Orca's orchestration state** (by running `orca orchestration` commands), not left as chat text — the viewer polls Orca live and draws whatever is there.
+## Choose the entry path
 
-## Tools you may use
-- **Bash** to run the `orca` CLI and read/write orchestration state.
-- **Read / Write / Edit** to write planning docs in the working directory (`docs/PRD.md`, `docs/TECH_SPEC.md`).
-- Do not run destructive commands unrelated to this task (`rm`, `git push`, deleting files, …).
+| Available input | Next action |
+|---|---|
+| Planning-only request | Write the plan in work-vault; create no Run or workers. |
+| Accepted specification | Verify its bytes and scope, then decompose authorized implementation. |
+| User-selected group discussion | Use group to produce and check the delivery specification. |
+| Unresolved requirements | Discuss with the user; resolve material unknowns before dependent work. |
+| Feedback on delivered work | Classify the increment using the table below. |
 
-## Preflight
-```bash
-orca status --json      # runtime.state should be "ready"; if not, ask the user to run `orca open` first
-                        # runtime.appVersion must be >= 1.4.160 (the Run/Dispatch contract)
+Resolve `orca` using the installed orchestration skill's platform rules. Before
+coordination, read `orca skills get orchestration` with that executable. Its
+version-matched contract governs lifecycle commands. Load conditional references
+only when their action applies. Use orca-cli for worktree/terminal ownership.
+
+## Establish the delivery specification
+
+Cover one agreed delivery: observable behavior, interfaces, ownership, constraints,
+exclusions, and acceptance checks. Future increments remain open. Write work
+artifacts under `~/work-vault`; honor its local instructions. Ask one material
+question at a time through the runtime's permitted structured question UI. Carry
+existing user decisions and authorization forward.
+
+Use this document structure:
+
+```markdown
+# Delivery specification
+## Outcome and scope
+## Observable behavior and interfaces
+## Constraints and ownership
+## Acceptance examples and verification commands
+## Exclusions
+## Resolved design decisions and supporting evidence
+## Human decisions and unresolved choices
 ```
 
-## Workflow (three phases, all in conversation)
-1. **Requirement clarification (PRD)**: align on the goal, MVP scope, and explicit non-goals with short questions — one key question at a time. If MVP is enough, plan only P0; don't over-design. Once agreed, write `docs/PRD.md`.
-2. **Technical design (TECH_SPEC)**: stack, data model (down to fields), module interfaces (pseudocode). Write `docs/TECH_SPEC.md`.
-3. **Decompose into a task DAG**: split the design into parallel/serial subtasks and create the tasks and dependencies with the commands below. **This step is the required output.**
+### Group-authored entry
 
-## Writing the DAG into Orca (the core)
+Use the existing group skill with the user's named sessions or membership already
+explicitly established for this topic. Missing membership requires clarification;
+never choose unrelated sessions, replace members, or launch extra agents.
+Importing an existing group document sends no member messages.
 
-### Step 0: create a Run first (required on Orca ≥ 1.4.160)
+Give the group's single `discussion.md` the specification structure above from
+the outset. Its existing `--output` option can place the document under a new
+`~/work-vault/sessions/design/<topic>/` directory. Group runtime state stays at
+its local state root. The group owns discussion and relevant read-only inquiry.
+Use its finite rounds, current-input checks, human-steering pause, and explicit
+continuation rules; load the group workflow for their exact mechanics.
 
-Tasks are **no longer global**: every task belongs to a Run, and `task-create` / `task-list` fail with `run_required` when no Run is bound. So **start every plan by opening a fresh Run** to hold this DAG:
+Attribute agreement only to current responses about the reviewed revision.
+Record dissent and the user's choices. Exhausted allowance or a finished group
+does not imply consensus, human acceptance, or implementation authorization.
+Material changes after the final check remain visibly unchecked. Unavailable
+members are disclosed. Resolve acceptance-critical unknowns before dependent work.
 
-```bash
-orca orchestration run-create --objective "<one sentence on what this plan does>" --json
+When the user accepts the reviewed document, preserve a byte-for-byte
+`accepted-spec.md` snapshot beside it and compute SHA-256. Do not rewrite or
+append metadata to those accepted bytes. In the implementation brief record the
+group/design Run IDs, input revision, accepted digest, human decision reference,
+and unresolved-item dispositions. This is a frozen version, not a second living spec.
+
+Finish or pause group discussion and account for outstanding assignments before
+switching the same coordinator to implementation. Keep member sessions open.
+Create a separate implementation Run, referencing the design Run and snapshot
+in task briefs; cross-Run dependency edges and reused discussion Dispatch IDs
+are invalid. Decompose the accepted contract without repeating the interview.
+If execution was already authorized, proceed without another approval ritual.
+
+## Execute the bounded delivery
+
+Create a Run only when coordination is requested/authorized. Build tasks with
+native `task-create` and real same-Run dependencies, then verify with `task-list`.
+Use the native guide for exact flags and worker placement. Parallel writers need
+explicit disjoint ownership or isolated worktrees. Never substitute a second
+viewer scheduler or non-Orca subagents for supervised provenance.
+
+Each task brief contains:
+
+```text
+Target: exact component/files and allowed worktree.
+Change: bounded result to produce.
+Contract: accepted spec path, digest, relevant sections and essential constraints.
+Inputs: baseline revision and relevant prior task/report references.
+Ownership: coordinator, allowed writer, review role, do-not-touch boundaries.
+Acceptance: commands and observable evidence required.
+Questions: ask the coordinator when a material fact is missing.
+Result: report path and exact tested/reviewed revision or content digest.
 ```
 
-The response carries `result.run.id` (shaped like `run_xxxxxxxx`). `run-create` binds the **current terminal** as that Run's coordinator, so later `task-create` calls don't need `--run`.
+Include enough bounded contract content to execute; link deeper evidence instead
+of copying the entire discussion into every worker. The coordinator handles the
+native mailbox, questions, settlement, reuse/retention/release, and acknowledgment.
+An enqueue receipt proves neither acceptance nor completion. A timeout is a
+checkpoint. Verify reported results against the actual artifacts.
 
-> One Run holds one DAG. Orca itself doesn't enforce this (a Run is just a namespace), but the viewer renders "one Run = one graph". To replan, open a new Run — **never** use `reset`.
+Human decisions stay in the coordinator conversation. Use a native gate only
+when a real dependency requires one; ordinary questions use ask/reply. Existing
+skills selected by the user retain their own rules. Do not automatically invoke
+collaborate, shadow, claude, or group, or claim their subprocesses are Dispatches.
 
-### Step 1: create tasks one by one
+## Handle progressive increments
 
-Dependencies between tasks are passed to `--deps` as a **JSON array** of the depended-on task ids.
+| Feedback | Contract action | Work/history action |
+|---|---|---|
+| Existing contract violated | Keep accepted contract | Add related repair/review work; verify fresh artifacts. |
+| Desired behavior/interface changes | Agree the affected amendment | Implement the delta with affected regression checks. |
+| Material design unknown | Investigate and resolve that slice | Hold dependent work; reconvene group only when requested. |
+| Substantial separate delivery | Establish its bounded spec | New implementation Run with previous outcome references. |
 
-A root task (no deps):
-```bash
-orca orchestration task-create \
-  --task-title "Scaffold the project" \
-  --spec "Initialize project structure and dependencies; produce package.json, src/, .gitignore. Acceptance: npm test runs." \
-  --json
-```
-`result.task.id` in the response is the task id (shaped like `task_xxxxxxxx`).
+Small related iterations remain in the Run. Record previous outcome references,
+requested delta, contract impact, affected scope, and acceptance in the increment
+brief. Preserve completed tasks and evidence; changed bytes require fresh checks.
+Stored task specs/titles/dependencies are immutable. Reconcile obsolete unstarted
+work using the native contract before replacing it. Never reset all Runs or
+evade an existing failed attempt's recovery/circuit-breaker rules by renaming work.
 
-Depending on an earlier task (put its id into `--deps`):
-```bash
-orca orchestration task-create \
-  --task-title "Implement the data model" \
-  --spec "Implement models and migrations per the TECH_SPEC data model. Acceptance: migrations run, unit tests included." \
-  --deps '["task_c8df9d97"]' --json
-```
-Multiple deps: `--deps '["task_aaa","task_bbb"]'`.
+## Observe and hand off
 
-**Remember every returned task id** — later tasks reference them in `--deps`, which is what builds the correct DAG. After creating a batch, self-check:
-```bash
-orca orchestration task-list --run <run_id> --json     # verify the dependencies are right
-```
-Deps may only point at tasks **within the same Run**.
+For the utils installation, start `node ~/.orca/orca-dag/start.mjs` and open
+`http://127.0.0.1:8787`. Other installations use their built viewer entrypoint.
+Select the Run; inspect task specs/results and native dispatch/terminal IDs.
+The viewer cannot start/stop workers, create Runs, resolve gates, or reset tasks.
+Its completed-history toggle preserves active dependencies. Design and
+implementation Runs appear separately; consensus remains in the spec document.
 
-### Spec-writing rules (important)
-Every subtask's `--spec` must be **self-contained and independently executable**, so the future executing agent **never has to ask questions or enter plan mode**:
-- **Inputs**: what it depends on, which files/interfaces to read.
-- **Outputs**: which files to create/modify, what the deliverable is.
-- **Acceptance criteria**: what "done" means (runnable tests, observable behavior).
-- Use imperative sentences; avoid vague phrasing like "investigate" or "as appropriate".
-
-## When human approval is needed
-At key points (e.g. "approve the design before execution"), create a decision gate. It blocks its task, and the viewer surfaces approve/reject buttons:
-```bash
-orca orchestration gate-create \
-  --task <task_id> \
-  --question "Approve the TECH_SPEC and move to execution?" \
-  --options '["approved","rejected"]' --json
-```
-
-## After the DAG is built: open the viewer and let Orca execute
-Once the DAG has taken shape, ask the user to open the viewer, and **tell them the Run id** (they pick it in the viewer's top bar):
-```bash
-npx orca-dag    # run in the current project directory; serves http://localhost:8787 and opens the browser
-```
-(If they already have it running — likely, since that command is also what installed this skill — they just need to reselect the Run.)
-In the viewer the user will: **pick your new Run in the top bar** → **watch the DAG live** → **choose a harness per node** (claude / codex / opencode / grok …, or a default fallback) → click **"▶ Run with Orca"** → **the viewer uses `worker-start` to spin up workers in dependency-parallel, waits for `worker_done`, and advances the whole graph** → **resolve approval gates**.
-
-In other words: **execution is the viewer's job, not yours.** Your responsibility ends at "the DAG is correct".
-
-⚠️ **You will get fenced — this is normal.** When the user starts execution, the viewer binds the Run's coordinator to its own terminal. From then on **your** mutations against that Run (`task-create` / `gate-resolve` / `dispatch`) fail with `consumer_fenced`. To take it back:
-
-```bash
-orca orchestration run-use --id <run_id> --json     # re-bind yourself as coordinator
-```
-
-Reads are unaffected — `task-list --run <id>` / `gate-list --run <id>` always work. So **`run-use` to reclaim the binding before adjusting the DAG**, then let the user hit Run again.
-
-You and the user can **keep adjusting the DAG in conversation** (add/remove tasks, change deps, add gates) and the viewer reflects it live. **By default, do not run `orca orchestration dispatch` / `worker-start` yourself** — that's the viewer's loop — unless the user explicitly asks you to drive from the command line.
-
-## Boundaries and known constraints
-- Focus on **planning + graph building**. Execution belongs to the viewer (the coordinator).
-- **Created tasks cannot be edited**: `orca orchestration task-update` only changes `--status` / `--result`. **There is no interface to edit spec/title/deps**, and no command to delete a single task. Get the graph right on the first pass where possible.
-- **To redraw the DAG, open a new Run — never `reset`.** `orca orchestration reset --tasks` has **no `--run` scope**: it clears the entire local orchestration database, deleting other Runs' tasks too. The correct move is `run-create` a new Run and rebuild; the old Run stays as history.
-- **Decision gates are Run-scoped, but the flags differ by direction**: `gate-list` (read) takes `--run <id>`; `gate-resolve` (mutation) takes **no `--run`** — it locates the gate via `--from <handle>` (a coordinator terminal bound to the Run) plus the globally unique `--id`. That's why the viewer first binds a coordinator with `run-use`, then resolves via `--from`.
-- **`orca orchestration run` / `run-stop` / `coordinator-start` / `coordinator-stop` are retired.** Calling them has no effect; they only return a "go read the orchestration skill" notice. Don't use them.
-- Don't run destructive or off-task system commands.
-
-## Communication style
-- Follow the user's language. Concise and direct.
-- After each batch of task creation/changes, summarize the DAG's current shape in one sentence (what runs in parallel, what is serial) — the user is watching it appear in the viewer.
+Finish with the outcome, exact evidence, unresolved choices, and each worker's
+ownership/cleanup disposition. Preserve a resumable work-vault checkpoint when
+needed. Record actual token usage when available; do not infer savings from
+instruction length or elapsed time.

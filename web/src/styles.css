@@ -737,23 +737,6 @@ body {
   height: 9px;
   border-radius: 45% 55% 50% 50%;
 }
-.task-node__harness {
-  font-family: "Fredoka", ui-monospace, monospace;
-  font-size: 10.5px;
-  color: var(--ink-soft);
-  background: var(--paper);
-  border: 1.5px solid var(--line-strong);
-  border-radius: 9px 5px 10px 5px;
-  padding: 1px 7px;
-  rotate: -1.5deg;
-  transition: transform 0.18s cubic-bezier(0.3, 1.5, 0.5, 1), color 0.18s ease,
-    border-color 0.18s ease;
-}
-.task-node:hover .task-node__harness {
-  transform: rotate(-2.5deg) scale(1.06);
-  color: var(--ink);
-  border-color: var(--ink-soft);
-}
 .dot {
   display: inline-block;
 }
@@ -1181,10 +1164,7 @@ body {
   margin-bottom: 12px;
   line-height: 1.5;
 }
-.gate__actions {
-  display: flex;
-  gap: 10px;
-}
+
 .btn--gate {
   padding: 6px 16px;
   font-size: 13px;
@@ -1312,29 +1292,9 @@ body {
   white-space: pre-wrap;
   color: var(--ink);
 }
-.node-panel__custom {
-  width: 100%;
-  font-family: var(--font-body);
-  font-size: 13px;
-  padding: 8px 11px;
-  border-radius: 11px 9px 12px 8px;
-  border: 2px solid var(--line-strong);
-  background: var(--paper);
-  color: var(--ink);
-  margin-top: 8px;
-  font-family: "Fredoka", ui-monospace, monospace;
-}
-.node-panel__custom:focus {
-  outline: none;
-  border-color: var(--sky);
-  box-shadow: 0 0 0 3px var(--sky-wash);
-}
-.node-panel__field--row {
-  flex-direction: row;
-  justify-content: space-between;
-  font-size: 12.5px;
-  color: var(--ink-soft);
-}
+
+
+
 .node-panel__hint {
   margin-top: 5px;
   font-size: 11px;
@@ -1342,145 +1302,10 @@ body {
   line-height: 1.5;
 }
 
-/* ---------- execution controls (worker pool + run) ---------- */
-.dag-toolbar__right {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-.exec {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-.exec__field {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.exec__label {
-  font-family: var(--font-display);
-  font-size: 12px;
-  color: var(--ink-soft);
-}
-.exec__custom,
-.exec__num {
-  font-family: var(--font-body);
-  font-size: 12.5px;
-  padding: 5px 9px;
-  border-radius: 10px 8px 11px 8px;
-  border: 2px solid var(--line-strong);
-  background: var(--paper);
-  color: var(--ink);
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
-}
-.exec__custom:hover:not(:disabled),
-.exec__num:hover:not(:disabled) {
-  border-color: var(--ink-soft);
-}
-.exec__custom {
-  width: 100px;
-  font-family: "Fredoka", ui-monospace, monospace;
-  animation: field-unfold 0.25s cubic-bezier(0.2, 1, 0.3, 1);
-}
-@keyframes field-unfold {
-  from { opacity: 0; width: 0; padding-left: 0; padding-right: 0; }
-  to { opacity: 1; width: 100px; }
-}
-.exec__num {
-  width: 52px;
-}
-.exec__custom:focus,
-.exec__num:focus {
-  outline: none;
-  border-color: var(--sky);
-  box-shadow: 0 0 0 3px var(--sky-wash);
-  transform: translateY(-1px);
-}
-.exec__live {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.exec__running {
-  font-family: var(--font-display);
-  font-size: 12.5px;
-  color: var(--butter);
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
-.exec__pulse {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--butter);
-  animation: pulse 1.1s ease-in-out infinite;
-}
-@keyframes pulse {
-  0%, 100% { opacity: 0.35; transform: scale(0.85); }
-  50% { opacity: 1; transform: scale(1.1); }
-}
-/* one bead per busy worker, each breathing out of phase — the pool at a glance */
-.exec__beads {
-  display: inline-flex;
-  gap: 3px;
-  margin-left: 2px;
-}
-.exec__beads i {
-  width: 5px;
-  height: 9px;
-  border-radius: 3px;
-  background: var(--butter);
-  animation: bead-bob 0.95s ease-in-out infinite;
-}
-@keyframes bead-bob {
-  0%, 100% { transform: scaleY(0.5); opacity: 0.45; }
-  50% { transform: scaleY(1); opacity: 1; }
-}
-.btn--run {
-  background: var(--meadow);
-  color: #fff;
-  border-color: #4f9e5d;
-  padding: 7px 18px;
-  font-size: 13.5px;
-}
-/* work is sitting ready and nobody has pressed Run — tap the user on the
-   shoulder every few seconds, then get out of the way on hover */
-.btn--attract {
-  animation: run-attract 4s ease-in-out 1s infinite;
-}
-.btn--attract:hover {
-  animation: none;
-}
-@keyframes run-attract {
-  0%, 78%, 100% { transform: translate(0, 0) rotate(0); box-shadow: var(--shadow-sticker); }
-  82% { transform: translate(-1px, -3px) rotate(-2deg); box-shadow: 5px 6px 0 rgba(74, 71, 84, 0.2); }
-  87% { transform: translate(1px, -1px) rotate(1.6deg); }
-  92% { transform: translate(-1px, -2px) rotate(-1deg); }
-}
-.btn--stop-run {
-  background: var(--coral);
-  color: #fff;
-  border-color: #c23b2e;
-  padding: 7px 18px;
-  font-size: 13.5px;
-}
-.exec__err {
-  font-size: 12px;
-  color: var(--coral);
-  max-width: 260px;
-  animation: err-jolt 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97);
-}
-@keyframes err-jolt {
-  0% { opacity: 0; transform: translateX(0); }
-  25% { opacity: 1; transform: translateX(-5px); }
-  50% { transform: translateX(4px); }
-  75% { transform: translateX(-2px); }
-  100% { transform: translateX(0); }
-}
+/* ---------- view controls ---------- */
+.dag-toolbar__right { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.toolbar-label { font-family: var(--font-display); font-size: 12px; color: var(--ink-soft); }
+.runpick__error { font-size: 12px; color: var(--coral); max-width: 260px; }
 .node-panel__result {
   margin: 0;
   font-family: "Fredoka", ui-monospace, monospace;
@@ -1659,9 +1484,6 @@ body {
   .topbar__title::after,
   .seg button.active::after {
     transform: none;
-  }
-  .exec__custom {
-    width: 100px;
   }
   /* purely kinetic flourishes have nothing to show when still */
   .task-node__ripple,
@@ -1960,20 +1782,6 @@ body {
   text-align: center;
 }
 
-/* Retry counter next to the running indicator: Orca circuit-breaks a task after
-   3 consecutive failed attempts, so a non-zero count is worth surfacing early. */
-.exec__retry {
-  margin-left: 8px;
-  padding: 2px 8px;
-  font-family: var(--font-display);
-  font-size: 11px;
-  color: #b37f16;
-  background: #fdf4e1;
-  border: 1.5px solid var(--butter);
-  border-radius: 8px 6px 9px 5px;
-  animation: err-jolt 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97);
-}
-
 /* Empty state when no Run is selected yet — a note doodled on the page. */
 .empty-run {
   position: absolute;
@@ -2018,3 +1826,6 @@ body {
   padding: 1px 6px;
   border-radius: 6px;
 }
+
+.history-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; }
+.gate__detail { font-size: 12px; margin-top: 5px; overflow-wrap: anywhere; }

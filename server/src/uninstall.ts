@@ -70,7 +70,7 @@ function isBrokenLink(path: string): boolean {
 /**
  * Close Orca terminals this viewer created.
  *
- * Both the coordinator loop's terminal and the `· adhoc N` one-shots carry the
+ * Older versions' coordinator terminals and `· adhoc N` one-shots carry the
  * same title prefix. A crashed viewer leaves them connected and still bound to
  * a Run, which fences the user's own agent — so cleaning them up is the part of
  * uninstall that actually unblocks someone.
@@ -113,7 +113,7 @@ export async function runUninstall(opts: UninstallOptions): Promise<void> {
         log(`${act("failed")}${configPath}: ${String((err as Error)?.message ?? err)}`);
       }
     } else {
-      // Per-node harness/model choices and canvas positions are real user work,
+      // Saved view preferences and historic execution choices are user data,
       // and this is only ever *one* workspace's copy — deleting it by default
       // would be a surprise, so it takes an explicit flag.
       log(`${act("kept")}${configPath} — your harness/model/layout choices (delete with --purge)`);

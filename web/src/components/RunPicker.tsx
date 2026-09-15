@@ -1,19 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { createRun, fetchRuns } from "../api";
+import { fetchRuns } from "../api";
 import type { OrcaRun } from "../types";
 import { DoodleSelect } from "./DoodleSelect";
 
-/**
- * Run selector.
- *
- * Since Orca 1.4.160 tasks are not global: every task belongs to exactly one
- * Run, and `task-list` refuses to answer without one. So the viewer always
- * shows the DAG *of a Run*, and this picker is how you choose which.
- *
- * A Run is a namespace, not a graph — nothing stops several unrelated DAGs
- * living in one Run. The orca-dag skill tells your agent to create a fresh Run
- * per plan, which is what makes "one Run = one DAG" hold in practice.
- */
+/** Select a native Run without taking its coordinator binding. */
 export function RunPicker({
   runId,
   onPick,
@@ -29,7 +19,6 @@ export function RunPicker({
 }) {
   const [runs, setRuns] = useState<OrcaRun[]>([]);
   const [err, setErr] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -49,27 +38,11 @@ export function RunPicker({
     return () => window.clearInterval(t);
   }, [load]);
 
-  async function onCreate() {
-    const objective = prompt("Objective for the new Run:");
-    if (!objective?.trim()) return;
-    setCreating(true);
-    setErr(null);
-    try {
-      const run = await createRun(objective.trim());
-      onPick(run.id);
-      await load();
-    } catch (e) {
-      setErr(String((e as Error).message ?? e));
-    } finally {
-      setCreating(false);
-    }
-  }
-
   const current = runs.find((r) => r.id === runId);
 
   return (
     <div className="runpick">
-      <span className="exec__label">Run</span>
+      <span className="toolbar-label">Run</span>
       <DoodleSelect
         value={runId}
         onChange={onPick}
@@ -83,15 +56,7 @@ export function RunPicker({
           hint: r.id,
         }))}
       />
-      <button
-        className="btn btn--ghost"
-        onClick={onCreate}
-        disabled={disabled || creating}
-        title="Create a new Run (the namespace orchestration tasks live in)"
-      >
-        ＋ New Run
-      </button>
-      {err && <span className="exec__err">⚠️ {err}</span>}
+      {err && <span className="runpick__error">⚠️ {err}</span>}
     </div>
   );
 }

@@ -63,7 +63,8 @@ try {
 
 // Fail here rather than in CI: a typecheck error would otherwise surface after
 // the tag is already public.
-console.log("Checking the tree builds…");
+console.log("Checking tests and builds…");
+execFileSync("npm", ["test"], { cwd: root, stdio: "inherit" });
 execFileSync("node", [join(root, "scripts", "check-skill.mjs")], { cwd: root, stdio: "inherit" });
 execFileSync("npx", ["tsc", "-p", "server/tsconfig.json", "--noEmit"], { cwd: root, stdio: "inherit" });
 execFileSync("node", [join(root, "scripts", "build-npm.mjs")], { cwd: root, stdio: "inherit" });

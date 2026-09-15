@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { DagView } from "./components/DagView";
-import { ExecControls } from "./components/ExecControls";
 import { GatePanel } from "./components/GatePanel";
 import { NodePanel } from "./components/NodePanel";
 import { RunPicker } from "./components/RunPicker";
-import { fetchDag, resetTasks } from "./api";
-import { initConfig, setLayout, setRunId, useConfig } from "./harness";
+import { fetchDag } from "./api";
+import { selectVisibleGraph } from "./graphVisibility";
+import { initConfig, setLayout, setRunId, useConfig } from "./viewConfig";
 import { LAYOUTS, STATUS_META, type DagResponse, type LayoutKind, type TaskStatus } from "./types";
 
 const EMPTY: DagResponse = { runId: "", nodes: [], edges: [], gates: [], generatedAt: 0 };
@@ -144,7 +144,8 @@ function HandDrawnDefs() {
 }
 
 export default function App() {
-  const [dag, setDag] = useState<DagResponse>(EMPTY);
+  const [storedDag, setDag] = useState<DagResponse>(EMPTY);
+  const [showCompleted, setShowCompleted] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [connError, setConnError] = useState<string | null>(null);
   const config = useConfig();
@@ -152,50 +153,55 @@ export default function App() {
   const layout: LayoutKind = config.layout || "layered-lr";
   // bump to force a fresh auto-layout (discarding manual drags)
   const [reorgNonce, setReorgNonce] = useState(0);
-  const timer = useRef<number | null>(null);
+  const dag = storedDag.runId === runId ? storedDag : EMPTY;
+  const visibleDag = useMemo(() => selectVisibleGraph(dag, showCompleted), [dag, showCompleted]);
 
-  // hydrate harness/concurrency/layout/run config from the server-side file
+  // Hydrate layout and Run preferences before choosing a fallback Run.
   // once; RunPicker must not auto-pick a Run until this has settled, or its
   // fallback would overwrite the stored choice with "newest"
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
     initConfig()
-      .catch(() => {
-        /* defaults + localStorage mirror still apply */
-      })
-      .finally(() => setHydrated(true));
+      .then(() => setHydrated(true))
+      .catch(error => setConnError(`Preferences unavailable: ${String(error)}`));
   }, []);
 
   function pickLayout(kind: LayoutKind) {
     setLayout(kind);
   }
 
-  const refresh = useCallback(async () => {
-    if (!runId) {
-      setDag(EMPTY);
-      return;
-    }
-    try {
-      const next = await fetchDag(runId);
-      setDag(next);
-      setConnError(null);
-    } catch (e) {
-      setConnError(String((e as Error).message ?? e));
-    }
-  }, [runId]);
-
   useEffect(() => {
-    refresh();
-    timer.current = window.setInterval(refresh, POLL_MS);
+    let active = true;
+    let timer: number | undefined;
+    const controller = new AbortController();
+    setConnError(null);
+    async function refresh() {
+      if (!runId) return;
+      try {
+        const next = await fetchDag(runId, controller.signal);
+        if (active) {
+          setDag(next);
+          setConnError(null);
+        }
+      } catch (error) {
+        if (active) setConnError(String((error as Error).message ?? error));
+      } finally {
+        if (active) timer = window.setTimeout(refresh, POLL_MS);
+      }
+    }
+    void refresh();
     return () => {
-      if (timer.current) window.clearInterval(timer.current);
+      active = false;
+      controller.abort();
+      window.clearTimeout(timer);
     };
-  }, [refresh]);
+  }, [runId]);
 
   // switching Run invalidates the current selection
   const pickRun = useCallback((id: string) => {
     setRunId(id);
     setSelectedId(null);
+    setDag(EMPTY);
   }, []);
 
   const counts = dag.nodes.reduce<Record<string, number>>((acc, n) => {
@@ -203,31 +209,13 @@ export default function App() {
     return acc;
   }, {});
 
-  const selected = dag.nodes.find((n) => n.id === selectedId) ?? null;
+  const selected = visibleDag.nodes.find((n) => n.id === selectedId) ?? null;
 
   // the toolbar's bottom edge doubles as a crayon progress strip
   const total = dag.nodes.length || 1;
   const pctDone = ((counts.completed ?? 0) / total) * 100;
   const pctFail = ((counts.failed ?? 0) / total) * 100;
   const pctRun = ((counts.dispatched ?? 0) / total) * 100;
-
-  async function onReset() {
-    // `orca orchestration reset` has no --run flag: it clears the whole local
-    // orchestration database, not just the Run on screen. Say so plainly.
-    const ok = confirm(
-      "⚠️ Clear tasks in ALL local Orca Runs?\n\n" +
-        "orca orchestration reset --tasks has no --run scope — it deletes tasks in every Run, " +
-        "not just the graph on screen. This cannot be undone.",
-    );
-    if (!ok) return;
-    try {
-      await resetTasks();
-      setSelectedId(null);
-      refresh();
-    } catch (err) {
-      alert(`Reset failed: ${String(err)}`);
-    }
-  }
 
   return (
     <div className="app">
@@ -263,7 +251,7 @@ export default function App() {
           </svg>
           <div>
             <div className="topbar__title">Orca DAG Viewer</div>
-            <div className="topbar__subtitle">Chat with your agent to build the graph · pick harnesses, let Orca run it in parallel</div>
+            <div className="topbar__subtitle">Group spec → supervised implementation → progressive increments</div>
           </div>
         </div>
         <span className="topbar__tape" aria-hidden="true" />
@@ -271,13 +259,11 @@ export default function App() {
           <RunPicker runId={runId} onPick={pickRun} autoPick={hydrated} />
           <div
             className={`conn ${connError ? "conn--bad" : "conn--ok"}`}
-            title={connError ?? "Connected to Orca"}
+            title={connError ? `Showing the last successful snapshot: ${connError}` : "Observing native Orca state"}
           >
-            {connError ? "Fetch failed" : "Orca connected"}
+            {connError ? "Refresh failed · data may be stale" : "Observing Orca"}
           </div>
-          <button className="btn btn--ghost" onClick={onReset} title="Clear tasks in all local Runs">
-            Clear tasks
-          </button>
+
         </div>
       </header>
 
@@ -304,7 +290,7 @@ export default function App() {
             </div>
             <div className="dag-toolbar__right">
               <div className="layout-ctl">
-                <span className="exec__label">Layout</span>
+                <span className="toolbar-label">Layout</span>
                 <div className="seg" role="group" aria-label="Layout algorithm">
                   {LAYOUTS.map((l) => (
                     <button
@@ -329,11 +315,15 @@ export default function App() {
               <span className="dag-toolbar__meta">
                 {dag.nodes.length} tasks · {dag.edges.length} deps
               </span>
-              <ExecControls
-                runId={runId}
-                taskIds={dag.nodes.map((n) => n.id)}
-                readyCount={counts.ready ?? 0}
-              />
+              <label className="history-toggle">
+                <input type="checkbox" checked={showCompleted} onChange={event => {
+                  setShowCompleted(event.target.checked);
+                  setSelectedId(null);
+                }} />
+                Show completed tasks
+              </label>
+              {!showCompleted && <span className="dag-toolbar__meta">{dag.nodes.length - visibleDag.nodes.length} completed hidden</span>}
+
             </div>
 
             {/* the toolbar's bottom rule fills in with crayon as work lands */}
@@ -345,13 +335,14 @@ export default function App() {
           </div>
 
           <div className="dag-canvas">
-            <DagView
-              dag={dag}
+            {(showCompleted || visibleDag.nodes.length > 0 || dag.nodes.length === 0) && <DagView
+              key={runId}
+              dag={visibleDag}
               selectedId={selectedId}
               onSelect={setSelectedId}
               layout={layout}
               reorgNonce={reorgNonce}
-            />
+            />}
 
             {!runId && (
               <div className="empty-run">
@@ -364,7 +355,10 @@ export default function App() {
               </div>
             )}
 
-            <GatePanel gates={dag.gates} runId={runId} onResolved={refresh} />
+            {!showCompleted && dag.nodes.length > 0 && visibleDag.nodes.length === 0 && (
+              <div className="empty-run"><p>No active tasks. Show completed tasks to inspect history.</p></div>
+            )}
+            <GatePanel gates={dag.gates} />
 
             {/* keyed by node so switching selection replays the card's entrance */}
             {selected && (

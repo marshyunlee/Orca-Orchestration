@@ -1,20 +1,11 @@
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-/**
- * Viewer-side configuration (per-node harness, default harness, concurrency,
- * layout) persisted next to the workspace as `.orca-dag.config.json`.
- *
- * Orca itself has no metadata field on tasks (task-create only takes
- * spec/title/display-name/deps/parent), so this file is the viewer's own
- * store — it survives browser restarts and localStorage wipes, and travels
- * with the project directory.
- */
+/** View preferences plus historic execution choices retained as user data. */
 export interface ViewerConfig {
   defaultHarness?: string;
   harnessByTask?: Record<string, string>;
-  /** Per-task model override. Only set for tasks whose harness supports one;
-   * otherwise the agent's default model is used. */
+  /** Stored for preservation only; never used to identify or launch a worker. */
   modelByTask?: Record<string, string>;
   maxConcurrency?: number;
   layout?: string;

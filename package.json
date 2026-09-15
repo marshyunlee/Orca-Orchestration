@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Orca DAG: a skill that teaches your agent to build an orchestration task DAG, plus a viewer binary to visualize it and fire tasks per-harness.",
+  "description": "Observe native Orca task DAGs with group-authored specifications and progressive increments.",
   "workspaces": [
     "server",
     "web"
@@ -16,7 +16,8 @@
     "build:binary": "node scripts/build-binary.mjs",
     "build:npm": "node scripts/build-npm.mjs",
     "release": "node scripts/release.mjs",
-    "start": "npm run start -w server"
+    "start": "npm run start -w server",
+    "test": "node --import tsx --test server/test/*.test.ts web/test/*.test.ts web/test/*.test.tsx"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

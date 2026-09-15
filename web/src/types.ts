@@ -82,84 +82,8 @@ export const STATUS_META: Record<TaskStatus, StatusMeta> = {
   blocked: { label: "Blocked", color: "#B79FE0", bg: "#F2EDFB", ink: "#7B5CB8" },
 };
 
-/**
- * Harness presets. These are Orca TUI agent ids: the coordinator passes one to
- * `orca orchestration worker-start --agent <id>`, so Orca owns the launcher and
- * its autonomous flags. Anything Orca doesn't recognize (a custom command) still
- * works — the coordinator falls back to creating the terminal itself.
- */
-export const HARNESSES = [
-  "claude",
-  "codex",
-  "opencode",
-  "gemini",
-  "grok",
-  "cursor",
-  "droid",
-  "kimi",
-] as const;
-export type Harness = (typeof HARNESSES)[number] | (string & {});
-
-/**
- * One in-flight attempt, mirroring an Orca Dispatch. `supervised` attempts were
- * started by `worker-start` and Orca tracks them; `legacy` ones were composed by
- * hand for a harness Orca doesn't recognize as a configured TUI agent.
- */
-export interface RunAttempt {
-  taskId: string;
-  harness: string;
-  mode: "supervised" | "legacy";
-  dispatchId: string | null;
-  handle: string | null;
-  /** Orca fails the task after 3 consecutive attempt failures. */
-  failureCount: number;
-  lastHeartbeatAt: string | null;
-}
-
-/** Live status of the self-driven coordinator. */
-export interface RunStatus {
-  running: boolean;
-  /** The Run this coordinator bound itself to. */
-  runId: string | null;
-  /** The Orca terminal the coordinator borrows for mutating calls. */
-  coordinatorHandle: string | null;
-  busy: number;
-  error: string | null;
-  startedAt: number;
-  lastTick: number;
-  attempts: RunAttempt[];
-}
-
-/**
- * Viewer configuration persisted server-side in `.orca-dag.config.json`
- * (workspace root) — Orca tasks have no metadata field for harness choices,
- * so the viewer keeps its own store instead of browser localStorage.
- */
+/** View preferences; historic execution choices remain preserved on the server. */
 export interface ViewerConfig {
-  defaultHarness: string;
-  harnessByTask: Record<string, string>;
-  /**
-   * Per-task model override. Only meaningful for harnesses that support model
-   * selection (opencode via `-m`, claude/codex/cursor via `worker-start
-   * --model`); empty string / absent means the agent's default model.
-   */
-  modelByTask: Record<string, string>;
-  maxConcurrency: number;
   layout: LayoutKind | "";
-  /** Last Run the user was viewing; restored on reload. */
   runId: string;
 }
-
-/**
- * Harness → model-selection capability. opencode gets an enumerable dropdown
- * (`opencode models`); claude/codex/cursor get free-text. Everything else has
- * no viewer-side model control.
- */
-export type ModelPickerKind = "select" | "text" | "none";
-
-export const MODEL_PICKER: Record<string, ModelPickerKind> = {
-  opencode: "select",
-  claude: "text",
-  codex: "text",
-  cursor: "text",
-};

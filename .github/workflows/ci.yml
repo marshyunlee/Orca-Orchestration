@@ -6,11 +6,9 @@ on:
   pull_request:
   workflow_dispatch:
 
-# The repo has no lint/test scripts (see AGENTS.md) — the checks that matter are
-# "does it still typecheck" and "does the thing users run actually boot".
 jobs:
   check:
-    name: Typecheck + package smoke test
+    name: Tests + typecheck + package smoke test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -21,6 +19,8 @@ jobs:
           cache: npm
 
       - run: npm ci
+
+      - run: npm test
 
       - name: Validate skill frontmatter
         run: node scripts/check-skill.mjs
@@ -47,7 +47,7 @@ jobs:
           mkdir -p /tmp/smoke && cd /tmp/smoke
           npm init -y >/dev/null
           npm install /tmp/orca-dag-*.tgz >/dev/null
-          NO_OPEN=1 PORT=8899 npx orca-dag &
+          ORCA_DAG_NO_SKILL=1 NO_OPEN=1 PORT=8899 npx orca-dag &
           for i in $(seq 1 30); do
             curl -sf http://localhost:8899/api/health >/dev/null && break
             sleep 1
@@ -100,7 +100,7 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x dist/orca-dag-linux-x64
-          NO_OPEN=1 PORT=8898 ./dist/orca-dag-linux-x64 &
+          ORCA_DAG_NO_SKILL=1 NO_OPEN=1 PORT=8898 ./dist/orca-dag-linux-x64 &
           for i in $(seq 1 30); do
             curl -sf http://localhost:8898/api/health >/dev/null && break
             sleep 1

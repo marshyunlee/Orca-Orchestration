@@ -96,9 +96,9 @@ writeFileSync(
       engines: { node: ">=20" },
       keywords: ["orca", "orchestration", "dag", "agents", "coordinator", "react-flow"],
       license: "MIT",
-      repository: { type: "git", url: "git+https://github.com/ZinkLu/Orca-Orchestration.git" },
-      homepage: "https://github.com/ZinkLu/Orca-Orchestration#readme",
-      bugs: { url: "https://github.com/ZinkLu/Orca-Orchestration/issues" },
+      repository: { type: "git", url: "git+https://github.com/marshyunlee/Orca-Orchestration.git" },
+      homepage: "https://github.com/marshyunlee/Orca-Orchestration#readme",
+      bugs: { url: "https://github.com/marshyunlee/Orca-Orchestration/issues" },
       // No dependencies on purpose — express and cors are inlined by esbuild.
     },
     null,

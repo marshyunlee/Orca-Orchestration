@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Validate skill/SKILL.md so a bad edit can't silently break distribution.
 //
-// `npx skills add ZinkLu/Orca-Orchestration --skill orca-dag` is the install
+// `npx skills add marshyunlee/Orca-Orchestration --skill orca-dag` is the install
 // path for the skill half of this project. The skills CLI discovers the skill
 // by walking the repo for SKILL.md and reads its *frontmatter* for the name and
 // the description the agent matches against — a dropped `---` fence or a
@@ -12,11 +12,11 @@
 // that command prompts when it detects no coding agent, which would hang CI.
 
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const path = join(root, "skill", "SKILL.md");
+const path = process.argv[2] ? resolve(process.argv[2]) : join(root, "skill", "SKILL.md");
 const EXPECTED_NAME = "orca-dag";
 
 const text = readFileSync(path, "utf8");
@@ -48,4 +48,4 @@ if (errors.length) {
   process.exit(1);
 }
 
-console.log(`✅ skill/SKILL.md ok — installable as \`npx skills add ZinkLu/Orca-Orchestration --skill ${name}\``);
+console.log(`✅ skill/SKILL.md ok — installable as \`npx skills add marshyunlee/Orca-Orchestration --skill ${name}\``);
