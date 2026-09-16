@@ -52,7 +52,7 @@ Use the existing group skill with the sessions explicitly selected on the board.
 
 Agreement comes from current contributions, never silence. Preserve dissent and unchecked changes. Finishing discussion does not approve the spec. The human approves the Run's current specification revision, edits generated tasks/dependencies/assignments, and requests Preview. Start accepts that exact Preview and authorizes execution in one action. Content changes invalidate Preview; moving nodes does not.
 
-Before implementation, settle discussion assignments and preserve the selected sessions. Implementation uses a separate native Run while the visible board/Run root stays stable. Never use cross-Run native dependencies or discussion lifecycle IDs for implementation.
+Before implementation, settle discussion assignments and preserve the selected sessions. Direct implementation normally uses a separate native Run while the visible board/Run root stays stable. When the coordinator also owns a component, refresh its binding first: direct tasks reuse that component Run without rebinding the master. Never use cross-Run native dependencies or discussion lifecycle IDs for implementation.
 
 ## Supervise execution
 
@@ -93,12 +93,8 @@ The local API trusts the local coordinator's recorded approval provenance; it is
 
 ## Implementation edits and increments
 
-The Implementation panel can read actual task-workspace files and preview unified diffs. Saving a draft only stores it in the vault. Apply explicitly writes after base-digest and path checks. An active writer blocks Apply; send the patch as guidance or stop the writer first. Resolve conflicts against current file contents. Do not treat Implementation notes as applied code.
+The Implementation panel can read actual task-workspace files and preview unified diffs. Saving a draft only stores it in the vault. Apply explicitly writes after base-digest and path checks. An active writer blocks Apply; send the patch as guidance or stop the writer first. Resolve conflicts against current file contents. Do not treat Implementation notes as applied code. Applying saved implementation files advances the task revision and invalidates its accepted result and Preview before writing. Downstream starts pause; review the resulting files and update Preview before restarting. Saving a draft alone leaves execution unchanged.
 
 For contract repairs, preserve the accepted contract and add related work. For changed behavior, amend the affected spec and obtain approval for the changed revision. New increment archives the current delivery and keeps the group's Run/spec/membership. It cannot discard active or unknown work. Earlier native tasks, attempts and results remain immutable history.
 
 Finish with actual outcomes, tested evidence, unresolved choices and each worker's ownership disposition. Keep artifacts in work-vault. Report actual token usage only when available; never infer savings from elapsed time.
-
-When the coordinator is also a component master, Start reuses that component Run for direct tasks. Refresh its component binding first; the board never rebinds that master merely to create an implementation Run.
-
-Applying saved implementation files advances the task revision and invalidates its accepted result and Preview before writing. Downstream starts pause; review the resulting files and update Preview before restarting. Saving a draft alone leaves execution unchanged.
