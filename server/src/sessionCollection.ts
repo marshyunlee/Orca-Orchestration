@@ -71,12 +71,14 @@ export function createSessionCollection(store:BoardStore,port=defaultPort){
    if(!isRecord(summary) || ['goals','acceptedScope','blockers'].some(field=>typeof summary[field]!=='string') || !Array.isArray(summary.items) || !Array.isArray(summary.documents) || summary.documents.some(value=>typeof value!=='string'))throw new Error('Invalid session summary');
    for(const item of summary.items){validateImportedItem(item);if(item.sourceIdentity!==identity)throw new Error('Summary attribution must match its author');if(!item.native && (item.ownerIdentity!==identity || item.ownerHandle!==request.member.terminalHandle))throw new Error('Narrative work belongs to its reporting session');}
    if(request.responsePath){if(await store.readArtifact(boardId,request.responsePath)!==JSON.stringify(summary))throw new Error('Summary already published; request a fresh collection');return before;}
+   const results=new Map<string,string>();
+   for(const item of summary.items)if(!item.native && item.status==='completed' && item.result?.trim())results.set(item.itemId,await store.artifact(boardId,`reported-result-${randomUUID()}`,JSON.stringify({author:identity,result:item.result,references:item.references,observedAt:item.observedAt})));
    const path=await store.artifact(boardId,`summary-${randomUUID()}`,JSON.stringify(summary));
    return changeCollectedBoard(store,boardId,`${requestId}-response`,board=>{
     const entry=board.collection.requests.find(entry=>entry.id===requestId)!;entry.responsePath=path;entry.respondedAt=new Date().toISOString();
     if(!board.members.some(member=>sameBinding(member,entry.member)))return board;
     const items=summary.items.map(item=>{
-     if(!item.native)return {...item,resultPath:null,references:[...item.references,path]};
+     if(!item.native)return {...item,workspacePath:request.member.workspacePath,resultPath:results.get(item.itemId)??null,references:[...item.references,path]};
      const existing=board.nodes.find(node=>node.imported?.key===importedSourceKey(item))?.imported;
      if(!existing || !existing.sourceIdentities.includes(identity))throw new Error('Native work requires observed source association');
      return {...item,native:existing.native,ownerIdentity:existing.ownerIdentity,ownerHandle:existing.ownerHandle,status:existing.status,resultPath:existing.resultPath,references:[...item.references,path]};

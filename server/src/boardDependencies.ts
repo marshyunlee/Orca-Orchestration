@@ -7,6 +7,11 @@ export function resolveBoardDependencies(board: BoardSnapshot, nodeId: string): 
     const predecessor=board.nodes.find(node=>node.id===edge.source && !node.removed);
     if(!predecessor)throw new Error('Dependency node is unavailable');
     if(predecessor.kind==='run')return [];
+    if(predecessor.imported){
+      const work=predecessor.imported;
+      if(work.status!=='completed' || !work.resultPath || work.resultRevision!==predecessor.revision)throw new Error(`Unresolved predecessor ${predecessor.title}`);
+      return [{nodeId:predecessor.id,kind:'imported',evidenceId:work.key,digest:digestValue({key:work.key,resultPath:work.resultPath,native:work.native}),artifactPath:work.resultPath}];
+    }
     if(predecessor.collaborate){
       const result=board.components[predecessor.id]?.result;
       if(!result || result.nodeRevision!==predecessor.revision || result.gateDigest!==board.components[predecessor.id].gateDigest)throw new Error(`Unresolved predecessor ${predecessor.title}`);

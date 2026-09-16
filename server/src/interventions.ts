@@ -31,11 +31,13 @@ export function createActionExecutor(store:BoardStore){
     case "resume":
       break;
     case "start":
-      if(!before.implementationRunId && before.nodes.some(node=>node.kind==="task" && !node.removed && !node.collaborate)){
+      if(!before.implementationRunId && before.nodes.some(node=>node.kind==="task" && !node.removed && !node.collaborate && !node.imported)){
         const owned=before.nodes.find(node=>!node.removed && node.collaborate?.masterIdentity===identity);
         if(owned){
           existingRunId=before.components[owned.id]?.runId??null;
           if(!existingRunId)throw new Error("Refresh the coordinator's component binding before starting direct tasks");
+        }else if(before.nodes.some(node=>node.imported?.ownerIdentity===identity && node.imported.native)){
+          existingRunId=before.nodes.find(node=>node.imported?.ownerIdentity===identity && node.imported.native)!.imported!.native!.runId;
         }else operation={kind:"create-run",objective:`${before.title} · ${before.deliveryId}`};
       }
       break;
@@ -57,6 +59,7 @@ export function createActionExecutor(store:BoardStore){
       const fields=isRecord(data.data)?data.data:{};
       const message=before.messages.find(message=>message.nativeMessageId===fields.messageId && !message.answered);
       if(!message?.nativeMessageId)throw new Error("Unanswered native question not found");
+      if(message.importedNodeId)throw new Error("Route imported questions through their original owner");
       if(message.componentNodeId)throw new Error("Route component questions through their master");
       operation={kind:"reply-question",messageId:message.nativeMessageId,body:String(data.body??"")};break;
     }

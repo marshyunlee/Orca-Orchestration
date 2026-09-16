@@ -1,3 +1,4 @@
+import {hasImportedWork} from './importControls.js';
 import {findDownstream,digestValue} from "./boardGraph.js";
 import { hasComponentWork } from "./componentActivity.js";
 import {Router} from "express";
@@ -14,6 +15,7 @@ function taskWorkspace(board:BoardSnapshot,nodeId:string):string{
  const node=board.nodes.find(node=>node.id===nodeId && node.kind==="task");if(!node)throw new Error("Task not found");
  const attempt=board.attempts.filter(attempt=>attempt.nodeId===nodeId).at(-1);
  if(attempt)return attempt.workspacePath;
+ if(node.imported){if(node.imported.workspacePath)return node.imported.workspacePath;throw new Error("Source task workspace is unverified; request it from the owner before applying files");}
  if(node.collaborate){const master=board.members.find(member=>member.identity===node.collaborate!.masterIdentity);if(master)return master.workspacePath;}
  if(node.assignment?.kind==="new-worker")return node.assignment.workspacePath;
  const assignment=node.assignment;
@@ -51,7 +53,7 @@ export function createWorkspaceRouter(store:BoardStore):Router{
    workspace=workspaceKey(taskWorkspace(board,draft.nodeId));
    if(workspace!==workspaceKey(staged.workspace))throw new Error("Task workspace changed; reopen files before applying");
    assertWorkspaceAvailable(workspace);applying.add(workspace);acquired=true;
-   for(const current of await store.list())if(current.nodes.some(node=>node.collaborate && current.members.some(member=>member.identity===node.collaborate!.masterIdentity && workspaceKey(member.workspacePath)===workspace) && hasComponentWork(current,node.id)) || current.attempts.some(attempt=>workspaceKey(attempt.workspacePath)===workspace && hasActiveWriter(attempt)))throw new Error("An agent is writing this workspace. Send the patch as guidance or stop its attempt before Apply");
+   for(const current of await store.list())if(current.nodes.some(node=>node.imported && hasImportedWork(current,node.id) && (!node.imported.workspacePath || workspaceKey(node.imported.workspacePath)===workspace)) || current.nodes.some(node=>node.collaborate && current.members.some(member=>member.identity===node.collaborate!.masterIdentity && workspaceKey(member.workspacePath)===workspace) && hasComponentWork(current,node.id)) || current.attempts.some(attempt=>workspaceKey(attempt.workspacePath)===workspace && hasActiveWriter(attempt)))throw new Error("An agent is writing this workspace. Send the patch as guidance or stop its attempt before Apply");
    const actionId=request.body.actionId;
    const journalName=`apply-${digestValue(actionId)}`;
    const reserved=await store.update(board.id,request.body.baseRevision,actionId,current=>{const node=current.nodes.find(node=>node.id===draft.nodeId)!;node.revision++;delete current.acceptedNodeDigests[node.id];current.acceptedGraphDigest=null;current.preview=null;current.pausedNodeIds=[...new Set([...current.pausedNodeIds,...findDownstream(node.id,current.edges)])];current.actions.push({id:actionId,kind:"apply-files",baseRevision:current.revision,phase:"claimed",actor:"human",nodeId:draft.nodeId,requestId:null,receiptPath:journalName,error:null,payload:{draftId:draft.id,workspace}});return current;});

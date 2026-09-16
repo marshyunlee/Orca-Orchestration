@@ -53,7 +53,7 @@ export interface ComponentLaunch {
   dependencies: DependencyEvidence[];
 }
 export interface DependencyEvidence {
-  nodeId: string; kind: 'direct' | 'component'; evidenceId: string; digest: string;
+  nodeId: string; kind: 'direct' | 'component' | 'imported'; evidenceId: string; digest: string;
   taskId?: string; runId?: string; artifactPath?: string;
 }
 export interface ComponentResult {

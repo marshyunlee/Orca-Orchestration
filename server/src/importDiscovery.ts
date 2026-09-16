@@ -14,7 +14,7 @@ export function selectImportedTasks(members:MemberRef[],inventory:MemberRef[],ru
    const selected=new Set(tasks.filter(task=>run.coordinator_handle===member.terminalHandle || task.assignee_handle===member.terminalHandle).map(task=>task.id));
    const visit=(id:string)=>{const task=tasks.find(task=>task.id===id);if(!task)return;for(const dep of parseDependencies(task.deps))if(!selected.has(dep)){selected.add(dep);visit(dep);}};
    for(const id of [...selected])visit(id);
-   for(const task of tasks.filter(task=>selected.has(task.id)))items.push({itemId:task.id,sourceIdentity:member.identity,ownerIdentity:owner?.identity??null,ownerHandle:run.coordinator_handle,native:{hostId:owner?.hostId??'local',runId:run.id,taskId:task.id,dispatchId:task.dispatch_id??null},title:task.task_title??task.display_name??task.id,content:{prompt:task.spec,plan:'',design:'',implementationNotes:''},status:task.status,observedAt:new Date().toISOString(),references:[`orca:run:${run.id}:task:${task.id}`],dependencies:parseDependencies(task.deps),resultPath:null});
+   for(const task of tasks.filter(task=>selected.has(task.id)))items.push({itemId:task.id,sourceIdentity:member.identity,ownerIdentity:owner?.identity??null,ownerHandle:run.coordinator_handle,native:{hostId:owner?.hostId??'local',runId:run.id,taskId:task.id,dispatchId:task.dispatch_id??null},title:task.task_title??task.display_name??task.id,content:{prompt:task.spec,plan:'',design:'',implementationNotes:''},status:task.status,observedAt:new Date().toISOString(),references:[`orca:run:${run.id}:task:${task.id}`],dependencies:parseDependencies(task.deps),resultPath:null,workspacePath:inventory.find(candidate=>candidate.terminalHandle===task.assignee_handle)?.workspacePath});
   }
  }
  return items;

@@ -1,3 +1,4 @@
+import {createImportControls,hasImportedWork} from './importControls.js';
 import {createImportRouter,collectBoardSessions} from './importRoutes.js';
 import { componentActionKinds } from "./componentPrompt.js";
 import { hasComponentWork } from "./componentActivity.js";
@@ -23,6 +24,17 @@ export function applyBoardEdit(board: BoardSnapshot, operation: BoardEdit): Boar
   const target = "nodeId" in operation ? board.nodes.find(node=>node.id===operation.nodeId && !node.removed) : undefined;
   if ("nodeId" in operation && !target) throw new Error("Node not found");
   switch (operation.kind) {
+    case "resolve-import": {
+      if(!target!.imported || !Array.isArray(operation.fields))throw new Error("Imported proposal required");
+      for(const field of operation.fields){
+        if(!['title','prompt','plan','design','implementationNotes'].includes(field))throw new Error("Unknown source field");
+        const key=field as "title"|"prompt"|"plan"|"design"|"implementationNotes";
+        const value=target!.imported.proposals[key];if(value===undefined)continue;
+        if(operation.accept){if(key==='title')target!.title=value;else target!.content[key]=value;}
+        delete target!.imported.proposals[key];
+      }
+      target!.revision++;return board;
+    }
     case "accept-result": {
       const attempt=board.attempts.find(attempt=>attempt.id===operation.attemptId && attempt.nodeId===target!.id);
       if(!attempt || attempt.nativeStatus!=="completed" || !attempt.resultPath)throw new Error("A completed attempt with result evidence is required");
@@ -55,7 +67,7 @@ export function applyBoardEdit(board: BoardSnapshot, operation: BoardEdit): Boar
       if(hasComponentWork(board,target!.id) && JSON.stringify(target!.collaborate)!==JSON.stringify(operation.collaborate))throw new Error("Settle component work before changing its execution binding");
       target!.title=operation.title; target!.content=operation.content; target!.assignment=operation.assignment; target!.collaborate=operation.collaborate; target!.revision++;
       if (target!.kind === "run") board.specApproval=null;
-      if (hasComponentWork(board,target!.id) || board.attempts.some(attempt=>attempt.nodeId===target!.id && hasActiveWriter(attempt))) {
+      if (hasImportedWork(board,target!.id) || hasComponentWork(board,target!.id) || board.attempts.some(attempt=>attempt.nodeId===target!.id && hasActiveWriter(attempt))) {
         board.pausedNodeIds=[...new Set([...board.pausedNodeIds,...findDownstream(target!.id,board.edges)])];
       }
       return board;
@@ -66,11 +78,12 @@ export function applyBoardEdit(board: BoardSnapshot, operation: BoardEdit): Boar
       board.edges.push({id:`edge_${randomUUID()}`,source:operation.source,target:operation.target}); return board;
     case "disconnect": {
       if (!board.edges.some(edge=>edge.id===operation.edgeId)) throw new Error("Edge not found");
+      const removed=board.edges.find(edge=>edge.id===operation.edgeId);if(removed?.importedKey)board.collection.suppressedEdges.push(removed.importedKey);
       board.edges=board.edges.filter(edge=>edge.id!==operation.edgeId); return board;
     }
     case "remove-node":
       if (target!.kind!=="task") throw new Error("Only task nodes can be removed");
-      if (hasComponentWork(board,target!.id) || board.attempts.some(attempt=>attempt.nodeId===target!.id && hasActiveWriter(attempt))) throw new Error("Stop active work before removing this task");
+      if (hasImportedWork(board,target!.id) || hasComponentWork(board,target!.id) || board.attempts.some(attempt=>attempt.nodeId===target!.id && hasActiveWriter(attempt))) throw new Error("Stop active work before removing this task");
       board.pausedNodeIds=[...new Set([...board.pausedNodeIds,...findDownstream(target!.id,board.edges)])];
       target!.removed=true;
       board.edges=board.edges.filter(edge=>edge.source!==target!.id && edge.target!==target!.id); return board;
@@ -78,6 +91,7 @@ export function applyBoardEdit(board: BoardSnapshot, operation: BoardEdit): Boar
       validateMembers(operation.members);
       if (!operation.members.some(member=>member.identity===operation.coordinatorIdentity)) throw new Error("Coordinator must be a member");
       const changed=board.members.filter(member=>!operation.members.some(candidate=>candidate.identity===member.identity && candidate.terminalHandle===member.terminalHandle && candidate.incarnationId===member.incarnationId));
+      if(changed.some(member=>board.nodes.some(node=>node.imported?.ownerIdentity===member.identity && hasImportedWork(board,node.id))))throw new Error("Settle owner work and control actions before removing its session");
       if (changed.some(member=>board.nodes.some(node=>node.collaborate?.masterIdentity===member.identity && hasComponentWork(board,node.id))) || board.attempts.some(attempt=>changed.some(member=>member.terminalHandle===attempt.assigneeHandle) && hasActiveWriter(attempt))) throw new Error("Settle outstanding work before removing or rebinding its member");
       if (board.discussionGroupId) throw new Error("Membership must be reconciled by the group coordinator");
       board.members=operation.members;board.coordinatorIdentity=operation.coordinatorIdentity;return board;
@@ -111,6 +125,7 @@ export function createBoardRouter(store: BoardStore, token: string): Router {
   const bridge=createExecutionBridge(store);
   const executor=createActionExecutor(store);
   const membership=createMembershipActions(store);
+  const imports=createImportControls(store);
   router.get("/",async (_request,response)=>{try{response.json({boards:(await store.list()).map(board=>({...board,observationError:observationErrors.get(board.id),discussionStatus:discussionStatuses.get(board.id)}))});}catch(error){sendBoardError(response,error);}});
   router.get("/:id",async (request,response)=>{try{const board=await store.read(request.params.id);response.json({...board,digests:{spec:digestSpec(board),graph:digestExecutableBoard(board)}});}catch(error){sendBoardError(response,error);}});
   router.use(requireToken(token));
@@ -130,9 +145,12 @@ export function createBoardRouter(store: BoardStore, token: string): Router {
     try {
       if (!isRecord(request.body) || !Number.isInteger(request.body.baseRevision)) throw new Error("Base revision required");
       const {baseRevision,actionId,operation}=request.body;
+      if(isRecord(operation) && operation.kind==='import-control'){
+        const saved=await imports.queue(String(request.params.id),baseRevision as number,String(actionId),String(operation.nodeId),String(operation.control),String(operation.body??''),typeof operation.messageId==='string'?operation.messageId:undefined);response.json(saved);void coordinator.deliver(saved.id,String(actionId)).catch(()=>{});return;
+      }
       if(isRecord(operation) && operation.kind==="new-delivery"){
         const current=await store.read(String(request.params.id));
-        if(current.nodes.some(node=>hasComponentWork(current,node.id)) || current.attempts.some(hasActiveWriter) || current.actions.some(action=>["claimed","unknown"].includes(action.phase)))throw new Error("Reconcile active work before starting a new increment");
+        if(current.nodes.some(node=>hasImportedWork(current,node.id) || hasComponentWork(current,node.id)) || current.attempts.some(hasActiveWriter) || current.actions.some(action=>["claimed","unknown"].includes(action.phase)))throw new Error("Reconcile active work before starting a new increment");
         const path=await store.artifact(current.id,`delivery-${randomUUID()}`,JSON.stringify(current));
         response.json(await store.update(current.id,baseRevision as number,actionId as string,board=>{
           board.history.push({deliveryId:board.deliveryId,snapshotPath:path});board.deliveryId=`delivery_${randomUUID()}`;

@@ -17,6 +17,7 @@ export async function refreshNativeBoard(store:BoardStore,boardId:string, native
  const fetched=new Map<string,ReturnType<typeof listTasks>>();
  const fetchTasks=(runId:string)=>{let tasks=fetched.get(runId);if(!tasks){tasks=native.listTasks(runId);fetched.set(runId,tasks);}return tasks;};
  await refreshImportedWork(store,boardId,{listTasks:fetchTasks});
+ await refreshImportedQuestions(store,boardId,native);
  const before=await store.read(boardId);if(!before.implementationRunId)return;
  const tasks=await fetchTasks(before.implementationRunId);
  const coordinator=before.members.find(member=>member.identity===before.coordinatorIdentity);
@@ -50,4 +51,18 @@ export async function refreshComponentQuestions(store:BoardStore,boardId:string,
   for(const message of envelope.messages??[])if(message.type==="question" && !before.messages.some(existing=>existing.nativeMessageId===message.id) && state.tasks.some(task=>task.dispatchId && `dispatch:${task.dispatchId}`===message.from_handle))questions.push({id:randomUUID(),author:message.from_handle,body:message.body,createdAt:message.created_at,nativeMessageId:message.id,componentNodeId:nodeId,answered:false});
  }
  if(questions.length)await store.update(boardId,before.revision,`component-questions-${randomUUID()}`,board=>{board.messages.push(...questions);return board;});
+}
+
+export async function refreshImportedQuestions(store:BoardStore,boardId:string,native={runOrca}):Promise<void>{
+ const before=await store.read(boardId),questions:BoardSnapshot['messages']=[];
+ const scopes=new Map<string,{runId:string;handle:string}>();
+ for(const node of before.nodes)if(!node.removed && node.imported?.native && node.imported.ownerHandle)scopes.set(`${node.imported.native.runId}/${node.imported.ownerHandle}`,{runId:node.imported.native.runId,handle:node.imported.ownerHandle});
+ for(const {runId,handle} of scopes.values()){
+  const envelope=await native.runOrca<{messages:{id:string;body:string;type:string;from_handle:string;created_at:string}[]}>(['orchestration','check','--peek','--types','question','--terminal',handle,'--run',runId]);
+  for(const message of envelope.messages??[]){
+   const node=before.nodes.find(node=>node.imported?.native?.runId===runId && `dispatch:${node.imported.native.dispatchId}`===message.from_handle);
+   if(node && !before.messages.some(existing=>existing.nativeMessageId===message.id))questions.push({id:randomUUID(),author:message.from_handle,body:message.body,createdAt:message.created_at,nativeMessageId:message.id,importedNodeId:node.id,answered:false});
+  }
+ }
+ if(questions.length)await store.update(boardId,before.revision,`import-questions-${randomUUID()}`,board=>{board.messages.push(...questions);return board;});
 }

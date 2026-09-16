@@ -1,3 +1,4 @@
+import {importedActionOwner,importedControlPrompt,hasImportedWork} from './importControls.js';
 import { componentActionKinds, componentActionPrompt } from "./componentPrompt.js";
 import { resolveBoardDependencies } from "./boardDependencies.js";
 import { hasComponentWork } from "./componentActivity.js";
@@ -68,11 +69,11 @@ export function createCoordinatorActions(store:BoardStore,port:CoordinatorPort=c
         const component=componentActionKinds.includes(action.kind)?board.nodes.find(node=>node.id===action.nodeId && !node.removed):undefined;
         if(componentActionKinds.includes(action.kind) && !component?.collaborate)throw new Error("Component binding unavailable");
         if(component && action.kind==="component-start" && (board.pauseNewStarts || board.pausedNodeIds.includes(component.id) || board.actions.some(other=>other.id!==action.id && other.nodeId===component.id && other.kind==="component-start" && (other.phase==="claimed" || other.phase==="unknown" || (other.phase==="queued" && isRecord(other.payload) && other.payload.delivery!=="pending")))))return;
-        const recipient=component?.collaborate?.masterIdentity??board.coordinatorIdentity;
+        const recipient=importedActionOwner(action)??component?.collaborate?.masterIdentity??board.coordinatorIdentity;
         const member=board.members.find(member=>member.identity===recipient)!;
         await port.verify(member);
         const command=process.env.ORCA_BOARD_CLI ?? "boardctl";
-        const basePrompt=component?componentActionPrompt(boardId,component,action,command,process.env.ORCA_BOARD_URL??`http://127.0.0.1:${process.env.PORT??8787}`):[
+        const basePrompt=action.kind==="import-control"?importedControlPrompt(board,action):component?componentActionPrompt(boardId,component,action,command,process.env.ORCA_BOARD_URL??`http://127.0.0.1:${process.env.PORT??8787}`):[
           `Orca group board request: ${action.kind}. Board ${boardId}; action ${actionId}.`,
           `Run boardctl from this coordinator session. Inspect the board, claim this action once, then read the returned revision before publishing.`,
           `CLI: ${command}. Server: ${process.env.ORCA_BOARD_URL??`http://127.0.0.1:${process.env.PORT??8787}`}. Use its --help for typed commands.`,
@@ -105,6 +106,7 @@ export function createCoordinatorActions(store:BoardStore,port:CoordinatorPort=c
     async claim(boardId:string,actionId:string,identity:string):Promise<BoardSnapshot>{
       const board=await store.read(boardId);
       const selected=board.actions.find(action=>action.id===actionId);
+      if(selected?.kind==="import-control")throw new Error("Use owner-claim for imported work");
       const owner=selected && componentActionKinds.includes(selected.kind)?board.nodes.find(node=>node.id===selected.nodeId && !node.removed)?.collaborate?.masterIdentity:board.coordinatorIdentity;
       if(identity!==owner)throw new Error("Only this action's selected coordinator or component master may claim it");
       await port.verify(board.members.find(member=>member.identity===identity)!);
@@ -148,11 +150,17 @@ export function createCoordinatorActions(store:BoardStore,port:CoordinatorPort=c
             case "graph": {
               if(action.kind!=="generate-tasks" || !board.specApproval || board.specApproval.digest!==digestSpec(board) || !Array.isArray(proposal.nodes) || !Array.isArray(proposal.edges))throw new Error("Approved specification and task graph required");
               for(const node of proposal.nodes){if(node.kind!=="task")throw new Error("Graph proposals contain task nodes only");validateContent(node.content);validateAssignment(node.assignment);if(node.collaborate && !board.members.some(member=>member.identity===node.collaborate!.masterIdentity))throw new Error("Component master must be a group member");}
+              for(const existing of board.nodes.filter(node=>node.imported)){
+                const replacement=proposal.nodes.find(node=>node.id===existing.id);
+                if(replacement && JSON.stringify(replacement)!==JSON.stringify(existing))throw new Error("Edit imported work through its saved node and owner controls");
+                if(!replacement)proposal.nodes.push(structuredClone(existing));
+              }
+              for(const edge of board.edges.filter(edge=>board.nodes.some(node=>node.imported && (node.id===edge.source || node.id===edge.target))))if(!proposal.edges.some(next=>next.id===edge.id))proposal.edges.push(edge);
               const newIds=new Set(proposal.nodes.map(node=>node.id));
               for(const old of board.nodes.filter(node=>node.kind==="task")){
                 const replacement=proposal.nodes.find(node=>node.id===old.id);
                 const changed=!replacement || JSON.stringify([replacement.title,replacement.content,replacement.assignment,replacement.collaborate,proposal.edges.filter(edge=>edge.target===old.id).map(edge=>edge.source).sort()])!==JSON.stringify([old.title,old.content,old.assignment,old.collaborate,board.edges.filter(edge=>edge.target===old.id).map(edge=>edge.source).sort()]);
-                if((hasComponentWork(board,old.id) || board.attempts.some(attempt=>attempt.nodeId===old.id && ["admitted","ready","dispatched","unknown"].includes(attempt.nativeStatus))) && changed)throw new Error("Reconcile active task edits through intervention controls");
+                if((hasImportedWork(board,old.id) || hasComponentWork(board,old.id) || board.attempts.some(attempt=>attempt.nodeId===old.id && ["admitted","ready","dispatched","unknown"].includes(attempt.nativeStatus))) && changed)throw new Error("Reconcile active task edits through intervention controls");
               }
               board.nodes=[...board.nodes.filter(node=>node.kind!=="task" || !newIds.has(node.id)).map(node=>node.kind==="task"?{...node,removed:true}:node),...proposal.nodes.map(node=>({...node,removed:false,revision:(()=>{const old=board.nodes.find(old=>old.id===node.id);return old && JSON.stringify([old.title,old.content,old.assignment,old.collaborate])===JSON.stringify([node.title,node.content,node.assignment,node.collaborate])?old.revision:(old?.revision??0)+1;})()}))];
               board.edges=proposal.edges;validateGraph(board.nodes,board.edges);break;

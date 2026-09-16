@@ -3,7 +3,7 @@ export interface NativeSource {hostId:string;runId:string;taskId:string;dispatch
 export interface ImportedItem {
  itemId:string;sourceIdentity:string;ownerIdentity:string|null;ownerHandle:string|null;
  native:NativeSource|null;title:string;content:NodeContent;status:string;observedAt:string;
- references:string[];dependencies:string[];resultPath:string|null;
+ references:string[];dependencies:string[];resultPath:string|null;result?:string;workspacePath?:string;
 }
 export interface ImportedWork extends ImportedItem {
  key:string;sourceIdentities:string[];baseline:{title:string;content:NodeContent};
@@ -26,6 +26,8 @@ export function validateImportedItem(value:unknown):asserts value is ImportedIte
  if(!value.itemId || !value.sourceIdentity || !value.title)throw new Error('Source item identity and title required');
  for(const field of ['ownerIdentity','ownerHandle','resultPath'])if(value[field]!==null)assertText(value[field],field);
  validateContent(value.content);
+ if(value.result!==undefined)assertText(value.result,"result");
+ if(value.workspacePath!==undefined){assertText(value.workspacePath,"workspacePath");if(!value.workspacePath.startsWith("/"))throw new Error("Absolute source workspace required");}
  for(const field of ['references','dependencies'])if(!Array.isArray(value[field]) || (value[field] as unknown[]).some(item=>typeof item!=='string'))throw new Error(`${field} must be text array`);
  if(value.native!==null){
   if(!isRecord(value.native))throw new Error('Invalid native identity');

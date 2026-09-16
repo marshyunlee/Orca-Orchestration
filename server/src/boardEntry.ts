@@ -22,10 +22,10 @@ export function resolveEntryMembers(inventory: MemberRef[], names: string[], cal
   return [...selected.values()];
 }
 
-export function resolveEntryRole(board: BoardSnapshot, callerHandle: string): {identity: string; role: 'coordinator' | 'component-master'; nodeIds: string[]} {
+export function resolveEntryRole(board: BoardSnapshot, callerHandle: string): {identity: string; role: 'coordinator' | 'component-master' | 'owner' | 'member'; nodeIds: string[]} {
   const member = board.members.find(member=>member.terminalHandle === callerHandle);
   if (!member) throw new Error('The caller is not a verified board member');
   const nodeIds = board.nodes.filter(node=>!node.removed && node.collaborate?.masterIdentity === member.identity).map(node=>node.id);
-  if (member.identity !== board.coordinatorIdentity && !nodeIds.length) throw new Error('Only the coordinator or an assigned component master may resume this delivery');
-  return {identity:member.identity, role:member.identity === board.coordinatorIdentity ? 'coordinator' : 'component-master', nodeIds};
+  const importedNodes=board.nodes.filter(node=>!node.removed && node.imported?.ownerIdentity===member.identity).map(node=>node.id);
+  return {identity:member.identity, role:member.identity === board.coordinatorIdentity ? 'coordinator' : nodeIds.length?'component-master':importedNodes.length?'owner':'member', nodeIds:[...nodeIds,...importedNodes]};
 }

@@ -1,3 +1,4 @@
+import {createImportControls} from './importControls.js';
 import {Router} from 'express';
 import {randomUUID} from 'node:crypto';
 import type {BoardStore} from './boardStore.js';
@@ -15,6 +16,9 @@ export function createImportRouter(store:BoardStore):Router{
   const board=await collection.publish(String((request.params as {id:string}).id),request.body.requestId,request.body.identity,request.body.summary);response.json(board);
   if(board.coordinatorIdentity!==request.body.identity)void queueCollectionSynthesis(store,board.id,coordinator).catch(()=>{});
  }catch(error){sendBoardError(response,error);}});
+ const controls=createImportControls(store);
+ router.post('/owner-claim',async(request,response)=>{try{response.json(await controls.claim(String((request.params as {id:string}).id),request.body.actionId,request.body.identity));}catch(error){sendBoardError(response,error);}});
+ router.post('/owner-finish',async(request,response)=>{try{response.json(await controls.finish(String((request.params as {id:string}).id),request.body.actionId,request.body.identity,request.body.stage,request.body.evidence));}catch(error){sendBoardError(response,error);}});
  return router;
 }
 async function queueCollectionSynthesis(store:BoardStore,id:string,coordinator=createCoordinatorActions(store)):Promise<void>{

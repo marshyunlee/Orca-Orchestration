@@ -36,7 +36,7 @@ export interface ActionRecord {
   receiptPath: string | null; error: string | null;
   payload: unknown;
 }
-export interface BoardMessage { id: string; author: string; body: string; createdAt: string; nativeMessageId?: string; componentNodeId?: string; answered?: boolean }
+export interface BoardMessage { id: string; author: string; body: string; createdAt: string; nativeMessageId?: string; componentNodeId?: string; importedNodeId?: string; answered?: boolean }
 export interface BoardSnapshot {
   collection: CollectionState;
   version: 1; id: string; title: string; revision: number; deliveryId: string;
@@ -54,6 +54,8 @@ export interface BoardSnapshot {
 }
 export interface FileEdit { path: string; baseDigest: string | null; content: string | null }
 export type BoardEdit =
+  | { kind: "import-control"; nodeId: string; control: string; body: string; messageId?: string }
+  | { kind: "resolve-import"; nodeId: string; fields: string[]; accept: boolean }
   | { kind: "component-start" | "component-guidance" | "component-stop" | "component-reconcile" | "component-question"; nodeId: string; body: string; messageId?: string }
   | { kind: "new-delivery" }
   | { kind: "reconcile"; targetActionId: string }
