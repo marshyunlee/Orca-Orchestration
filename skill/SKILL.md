@@ -98,3 +98,7 @@ The Implementation panel can read actual task-workspace files and preview unifie
 For contract repairs, preserve the accepted contract and add related work. For changed behavior, amend the affected spec and obtain approval for the changed revision. New increment archives the current delivery and keeps the group's Run/spec/membership. It cannot discard active or unknown work. Earlier native tasks, attempts and results remain immutable history.
 
 Finish with actual outcomes, tested evidence, unresolved choices and each worker's ownership disposition. Keep artifacts in work-vault. Report actual token usage only when available; never infer savings from elapsed time.
+
+When the coordinator is also a component master, Start reuses that component Run for direct tasks. Refresh its component binding first; the board never rebinds that master merely to create an implementation Run.
+
+Applying saved implementation files advances the task revision and invalidates its accepted result and Preview before writing. Downstream starts pause; review the resulting files and update Preview before restarting. Saving a draft alone leaves execution unchanged.

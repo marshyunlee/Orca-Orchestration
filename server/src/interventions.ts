@@ -15,7 +15,7 @@ export function createActionExecutor(store:BoardStore){
    if(data.effectToken)throw new Error("Action effect already admitted; reconcile its receipt");
    const node=before.nodes.find(node=>node.id===action.nodeId);
    const attempt=before.attempts.filter(attempt=>attempt.nodeId===action.nodeId).at(-1);
-   let operation:NativeOperation|null=null,guidancePath:string|null=null;
+   let operation:NativeOperation|null=null,guidancePath:string|null=null,existingRunId:string|null=null;
    const alreadySettled=attempt && ["completed","failed"].includes(attempt.nativeStatus) && Boolean(attempt.resultPath);
    switch(action.kind){
     case "handover": {
@@ -31,7 +31,13 @@ export function createActionExecutor(store:BoardStore){
     case "resume":
       break;
     case "start":
-      if(!before.implementationRunId && before.nodes.some(node=>node.kind==="task" && !node.removed && !node.collaborate))operation={kind:"create-run",objective:`${before.title} · ${before.deliveryId}`};
+      if(!before.implementationRunId && before.nodes.some(node=>node.kind==="task" && !node.removed && !node.collaborate)){
+        const owned=before.nodes.find(node=>!node.removed && node.collaborate?.masterIdentity===identity);
+        if(owned){
+          existingRunId=before.components[owned.id]?.runId??null;
+          if(!existingRunId)throw new Error("Refresh the coordinator's component binding before starting direct tasks");
+        }else operation={kind:"create-run",objective:`${before.title} · ${before.deliveryId}`};
+      }
       break;
     case "guidance":
       if(!node || !attempt || !hasActiveWriter(attempt) || !attempt.dispatchId)throw new Error("No active attempt to guide");
@@ -61,6 +67,7 @@ export function createActionExecutor(store:BoardStore){
      const current=board.actions.find(action=>action.id===actionId)!;
      const payload=actionPayload(current);if(payload.effectToken)throw new Error("Action effect already admitted");
      if(!operation){
+       if(existingRunId)board.implementationRunId=existingRunId;
        if(action.kind==="stop-rerun" && attempt && node){
          const selected=board.nodes.find(item=>item.id===node.id)!;
          if(attempt.nativeStatus==="completed" && selected.revision===attempt.nodeRevision)selected.revision++;

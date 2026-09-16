@@ -57,3 +57,18 @@ test("running edits preserve attempt input and pause transitive dependents; unkn
   assert.equal(waiting.attempts[0].stopped,false);
  }finally{await store.close();await rm(root,{recursive:true,force:true});}
 });
+
+test("Start preserves the component Run when its master also coordinates direct tasks",async()=>{
+ const root=await mkdtemp(join(tmpdir(),"shared-master-")),store=await createBoardStore(root);
+ try{
+  let board=await store.create({title:"Fixture",members:[{identity:"codex:master",source:"codex",sessionId:"master",tabId:"tab",tabName:"Master",terminalHandle:"term_master",incarnationId:"inc",hostId:"host",workspacePath:"/fixture"}],coordinatorIdentity:"codex:master"},"create");
+  board=await store.update(board.id,board.revision,"setup",current=>{
+   const component=createBoardNode("component","task","Component");component.collaborate={masterIdentity:"codex:master",manifestPath:"/manifest.json"};
+   current.nodes.push(component,createBoardNode("direct","task","Direct"));
+   current.components.component={masterIdentity:"codex:master",manifestPath:"/manifest.json",manifestDigest:"manifest",runId:"run_master",featureWorkspace:"/fixture",phase:"planning",gate:{baselineSha:"base",overlayDigest:"gate",commands:[],setup:[],humanChecks:[],selectionPolicy:[],deliveryScope:"repair",featureCloseRequested:false,repairPolicy:{}},gateDigest:"gate",approvals:[],launches:[],result:null,tasks:[],observedAt:"now"};
+   current.actions.push({id:"start",kind:"start",baseRevision:current.revision,phase:"claimed",actor:"codex:master",nodeId:null,requestId:null,receiptPath:null,error:null,payload:{}});return current;
+  });
+  assert.equal((await createActionExecutor(store).begin(board.id,"start","codex:master")).operation,null);
+  assert.equal((await store.read(board.id)).implementationRunId,"run_master");
+ }finally{await store.close();await rm(root,{recursive:true,force:true});}
+});
