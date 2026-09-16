@@ -110,5 +110,11 @@ test('selected result requires applied candidate and matching gate and opposite-
   assert.equal(board.components.component.result?.snapshotDigest,'snapshot');
   assert.equal(board.components.component.result?.candidateId,'impl-opus');
   assert.equal(board.attempts.length,0);
+  board=await service.refresh(board.id,'component',master.identity,'refresh-completed');
+  assert.equal(board.components.component.phase,'completed');
+  manifest.gate_revision='revised-overlay';
+  board=await service.refresh(board.id,'component',master.identity,'refresh-revised');
+  assert.equal(board.components.component.phase,'planning');
+  assert.equal(board.components.component.result?.snapshotDigest,'snapshot');
  }finally{await store.close();await rm(root,{recursive:true,force:true});}
 });

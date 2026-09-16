@@ -115,6 +115,7 @@ export function createCollaborateComponents(store: BoardStore, ports: Collaborat
     const state:ComponentState={masterIdentity:identity,manifestPath:manifest.path,manifestDigest:digestComponentValue(manifest.value),runId,featureWorkspace,
       phase:typeof manifest.value.phase==='string'?manifest.value.phase:'planning',gate,gateDigest:componentGateDigest(board,nodeId,manifest.path,gate),
       approvals:prior?.approvals??[],launches:prior?.launches??[],result:prior?.result??null,tasks:projectComponentTasks(manifest.value),observedAt:new Date().toISOString()};
+    if(state.result?.nodeRevision===node.revision && state.result.gateDigest===state.gateDigest)state.phase='completed';
     for(const task of state.tasks){
       const previous=prior?.tasks.find(item=>item.taskId===task.taskId && item.dispatchId===task.dispatchId);
       for(const [source,artifact] of [['briefPath','briefArtifact'],['reportPath','reportArtifact']] as const){
