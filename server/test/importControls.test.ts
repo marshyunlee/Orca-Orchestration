@@ -26,3 +26,32 @@ test('completed imports supply frozen evidence without cross-Run native dependen
 });
 import {createBoardSnapshot} from '../../shared/board.js';
 function makeBoard(){const board=createBoardSnapshot('board_test','Group',[owner],owner.identity);mergeImportedWork(board,[{itemId:'work',sourceIdentity:owner.identity,ownerIdentity:owner.identity,ownerHandle:owner.terminalHandle,native:null,title:'Work',content:{prompt:'Scope',plan:'',design:'',implementationNotes:''},status:'running',observedAt:'today',references:[],dependencies:[],resultPath:null}]);return {board,node:board.nodes[1]};}
+
+test('direct launch cannot redispatch imported work even when a caller supplies assignment',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'import-launch-')),store=await createBoardStore(root);
+ try{
+  let board=await store.create({title:'Group',members:[owner],coordinatorIdentity:owner.identity},'create');
+  const fixture=makeBoard();board=await store.update(board.id,board.revision,'setup',value=>({...value,nodes:[value.nodes[0],fixture.node]}));
+  const {createExecutionBridge}=await import('../src/executionBridge.js');
+  await assert.rejects(createExecutionBridge(store).admitLaunch(board.id,fixture.node.id,fixture.node.revision,'duplicate'),/Imported/);
+  assert.equal((await store.read(board.id)).attempts.length,0);
+ }finally{await store.close();await rm(root,{recursive:true,force:true});}
+});
+test('changed Dispatch or node revision prevents stale owner action claim',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'owner-stale-')),store=await createBoardStore(root);
+ try{
+  let board=await store.create({title:'Group',members:[owner],coordinatorIdentity:owner.identity},'create');const fixture=makeBoard();
+  board=await store.update(board.id,board.revision,'setup',value=>({...value,nodes:[value.nodes[0],fixture.node]}));
+  const controls=createImportControls(store,async member=>member);board=await controls.queue(board.id,board.revision,'guidance',fixture.node.id,'guidance','Update');
+  board=await store.update(board.id,board.revision,'new-revision',value=>{value.nodes[1].revision++;return value;});
+  await assert.rejects(controls.claim(board.id,'guidance',owner.identity),/revision/);
+ }finally{await store.close();await rm(root,{recursive:true,force:true});}
+});
+
+test('explicit duplicate confirmation merges attribution while preserving native execution',()=>{
+ const {board,node}=makeBoard();const native={...structuredClone(node.imported!),native:{hostId:'local',runId:'run',taskId:'task',dispatchId:'dispatch'},itemId:'native'};
+ mergeImportedWork(board,[native]);const target=board.nodes.at(-1)!;
+ applyBoardEdit(board,{kind:'merge-import',nodeId:node.id,targetNodeId:target.id});
+ assert.equal(node.removed,true);assert.equal(target.imported?.native?.dispatchId,'dispatch');assert.ok(target.imported!.sourceIdentities.includes(owner.identity));
+ mergeImportedWork(board,[{...node.imported!,title:'Late duplicate'}]);assert.equal(node.removed,true);
+});

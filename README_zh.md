@@ -57,3 +57,13 @@ The panel displays the exact gate package, implementation/review/repair history,
 The utils launcher also supplies `ORCA_FEATURE_WORKTREE_HELPER` and `ORCA_COLLABORATE_LEDGER_HELPER`. Standalone installations configure these existing collaborate/worktree helpers for component support. `ORCA_COLLABORATE_ROOT`, `ORCA_COLLABORATE_BULK_ROOT`, and `ORCA_BOARD_RUNTIME` can isolate fixture directories. Private tokens stay outside work-vault. See the packaged skill and `boardctl --help` for exact JSON examples and recovery commands.
 
 New human steps for component execution: select a master/manifest, approve its concrete gate when presented, and review changed gates before continuing. Direct task controls retain their existing workflow.
+
+## Existing-session onboarding
+
+New group can select existing Orca sessions and a coordinator before creation. The Run root appears immediately. Saved context and known native tasks are collected first; the coordinator requests fresh agent summaries at safe checkpoints. Duplicate tab names retain exact source-qualified identities. Missing or unavailable context remains visible.
+
+Imported tasks retain their original Run, Task, Dispatch and execution owner. Their panel shows source evidence, observed status, conflicting source proposals and owner controls. Include an external controlling owner through Manage sessions to enable controls. Pause, guidance, resume, stop/rerun and answers route through that owner; acknowledgment and applied outcome are displayed separately. Independent schedulers cooperate with these requests; the dashboard does not claim to forcibly pause them. New board work still requires spec/Preview approval, and Start never duplicates imported work.
+
+Context and receipts persist with the board under `~/work-vault/sessions/orca-boards`. `ORCA_WORK_VAULT` optionally selects the saved-context vault. `boardctl --help` documents `collect`, `collection-send`, `collection-publish`, `collection-reconcile`, `owner-claim` and `owner-finish`. Collection creates no new native Run or summary Dispatch. Human edits, positions and removed source edges survive refresh.
+
+Human steps: select sessions/coordinator, review overlapping source edits, and include the task's actual owner if it is outside the group. The server remains headless.

@@ -54,6 +54,7 @@ export interface BoardSnapshot {
 }
 export interface FileEdit { path: string; baseDigest: string | null; content: string | null }
 export type BoardEdit =
+  | { kind: "merge-import"; nodeId: string; targetNodeId: string }
   | { kind: "import-control"; nodeId: string; control: string; body: string; messageId?: string }
   | { kind: "resolve-import"; nodeId: string; fields: string[]; accept: boolean }
   | { kind: "component-start" | "component-guidance" | "component-stop" | "component-reconcile" | "component-question"; nodeId: string; body: string; messageId?: string }

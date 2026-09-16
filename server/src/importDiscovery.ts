@@ -33,6 +33,12 @@ export async function persistImportedItems(store:BoardStore,board:BoardSnapshot,
  for(const item of items){
   const task=tasks.find(task=>task.run_id===item.native?.runId && task.id===item.native.taskId);
   const previous=board.nodes.find(node=>node.imported?.key===importedSourceKey(item))?.imported;
+  if(previous){
+   item.title=previous.baseline.title;item.content=structuredClone(previous.baseline.content);
+   if(item.native && !item.native.dispatchId)item.native.dispatchId=previous.native?.dispatchId??null;
+   item.workspacePath??=previous.workspacePath;
+   item.references=[...new Set([...previous.references,...item.references])];
+  }
   if(task?.result){
    const key=importedSourceKey(item);let path=results.get(key);
    if(!path && previous?.resultPath && await store.readArtifact(board.id,previous.resultPath)===task.result)path=previous.resultPath;

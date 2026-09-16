@@ -17,6 +17,7 @@ export function createImportRouter(store:BoardStore):Router{
   if(board.coordinatorIdentity!==request.body.identity)void queueCollectionSynthesis(store,board.id,coordinator).catch(()=>{});
  }catch(error){sendBoardError(response,error);}});
  const controls=createImportControls(store);
+ router.post('/owner-reconcile',async(request,response)=>{try{response.json(await controls.reconcile(String((request.params as {id:string}).id),request.body.actionId,request.body.identity,request.body.evidence));}catch(error){sendBoardError(response,error);}});
  router.post('/owner-claim',async(request,response)=>{try{response.json(await controls.claim(String((request.params as {id:string}).id),request.body.actionId,request.body.identity));}catch(error){sendBoardError(response,error);}});
  router.post('/owner-finish',async(request,response)=>{try{response.json(await controls.finish(String((request.params as {id:string}).id),request.body.actionId,request.body.identity,request.body.stage,request.body.evidence));}catch(error){sendBoardError(response,error);}});
  return router;

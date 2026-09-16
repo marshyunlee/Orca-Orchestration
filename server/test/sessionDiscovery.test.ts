@@ -11,3 +11,15 @@ test("duplicate labels remain distinct identities and changed or disconnected bi
  assert.equal(projectSessions(rows,terminals).members.length,1);
  assert.equal(projectSessions(rows,terminals).unavailable[0].terminalHandle,"term-two");
 });
+
+test('persisted native session titles require exact live PTY and incarnation bindings',async()=>{
+ const {resolvePersistedSession}=await import('../src/persistedSessions.js');
+ const row={tab_id:'tab',source:'claude',terminal_handle:'term'};
+ const terminal={handle:'term',ptyId:'pty',tabId:'tab',leafId:'leaf',incarnationId:'inc',executionHostId:'local'};
+ const state={workspaceSession:{tabsByWorktree:{workspace:[{id:'tab',ptyId:'pty',aiVaultTitle:{agent:'claude',sessionId:'session-id'}}]},terminalPtyIncarnationsByPaneKey:{'tab:leaf':'inc'}}};
+ assert.equal(resolvePersistedSession(row,terminal,state),'session-id');
+ assert.equal(resolvePersistedSession(row,{...terminal,incarnationId:'restarted'},state),null);
+ assert.equal(resolvePersistedSession(row,{...terminal,ptyId:'different'},state),null);
+ assert.equal(resolvePersistedSession(row,{...terminal,executionHostId:'remote'},state),null);
+ assert.equal(resolvePersistedSession({...row,source:'codex'},terminal,state),null);
+});

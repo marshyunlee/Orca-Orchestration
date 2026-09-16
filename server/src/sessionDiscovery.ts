@@ -1,3 +1,4 @@
+import {readPersistedSessions,resolvePersistedSession} from './persistedSessions.js';
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { realpath } from "node:fs/promises";
@@ -5,7 +6,7 @@ import type { MemberRef, AgentSource } from "../../shared/board.js";
 import { runOrca, OrcaCliError } from "./orca.js";
 const execute=promisify(execFile);
 interface SessionCandidate { tab_name:string;tab_id:string;terminal_handle:string;source:string;session_id?:string;worktree_path:string;error?:string }
-interface TerminalBinding {handle:string;agentIdentity?:string;connected:boolean;writable:boolean;incarnationId?:string;executionHostId?:string;orphaned?:boolean}
+interface TerminalBinding {handle:string;agentIdentity?:string;connected:boolean;writable:boolean;incarnationId?:string;executionHostId?:string;orphaned?:boolean;ptyId?:string;tabId?:string;leafId?:string}
 export interface SessionDiscovery { members:MemberRef[];unavailable:{tabName:string;terminalHandle:string;reason:string}[] }
 export function projectSessions(rows:SessionCandidate[],terminals:TerminalBinding[]):SessionDiscovery {
   const result:SessionDiscovery={members:[],unavailable:[]};
@@ -43,7 +44,7 @@ else:
 with ThreadPoolExecutor(max_workers=min(len(rows),8) or 1) as pool:
  bindings=list(pool.map(helper.read_bound_session,rows))
 for row,binding in zip(rows,bindings): row.update(binding)
-fields=('handle','agentIdentity','connected','writable','incarnationId','executionHostId','orphaned')
+fields=('handle','agentIdentity','connected','writable','incarnationId','executionHostId','orphaned','ptyId','tabId','leafId')
 print(json.dumps({'rows':rows,'terminals':[{key:terminal.get(key) for key in fields} for terminal in terminals.values()]}))
 `;
 export async function discoverGroupSessions(options:{handle?:string;names?:string[]}={}):Promise<SessionDiscovery>{
@@ -52,13 +53,19 @@ export async function discoverGroupSessions(options:{handle?:string;names?:strin
   const helper=await realpath(configured);
   const {stdout}=await execute(process.env.ORCA_BOARD_PYTHON??"python3",["-c",discoveryScript,helper,JSON.stringify(options)],{timeout:30000,maxBuffer:8*1024*1024});
   const result=JSON.parse(stdout);
+  const state=await readPersistedSessions();
+  for(const row of result.rows as SessionCandidate[]){
+    const persisted=resolvePersistedSession(row,result.terminals.find((terminal:TerminalBinding)=>terminal.handle===row.terminal_handle),state);
+    if(persisted && !row.session_id){row.session_id=persisted;delete row.error;}
+    else if(persisted && persisted!==row.session_id)row.error="Live footer and native session binding disagree; wait for the session identity to settle";
+  }
   return projectSessions(result.rows,result.terminals);
 }
 export async function verifyGroupMember(member:MemberRef):Promise<MemberRef>{
   const result=await discoverGroupSessions({handle:member.terminalHandle});
   const verified=result.members.find(candidate=>candidate.identity===member.identity && candidate.incarnationId===member.incarnationId && candidate.hostId===member.hostId);
   if(!verified)throw new Error(`Session ${member.tabName} changed or disconnected; select its verified binding again`);
-  return verified;
+  return {...verified,tabName:member.tabName};
 }
 export async function isMemberIdle(member:MemberRef):Promise<boolean>{
   try{

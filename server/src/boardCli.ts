@@ -41,6 +41,7 @@ async function main():Promise<void>{
                                Create a shared board and queue group discussion
   resume [--board <id> | --title <exact-title>]
                                Resume the existing delivery in your assigned role
+  owner-reconcile --action <id> --evidence <text>  Resolve a stale action without replay
   owner-claim --action <id>     Claim a control as the original execution owner
   owner-finish --action <id> --stage acknowledged|applied --evidence <text>
   collect                      Refresh saved/native context and request fresh summaries
@@ -107,10 +108,10 @@ Use --terminal <your-own-handle> when the tool shell lacks inherited Orca identi
   const id=option("--board");
   const board=await request<BoardSnapshot>(`/api/boards/${encodeURIComponent(id)}`);
   if(args[0]==="read"){console.log(JSON.stringify(board,null,2));return;}
-  if(args[0]==="owner-claim" || args[0]==="owner-finish"){
+  if(args[0]==="owner-claim" || args[0]==="owner-finish" || args[0]==="owner-reconcile"){
     const member=board.members.find(member=>member.terminalHandle===callerHandle);
     if(!member)throw new Error("Run owner commands from your selected session");
-    console.log(JSON.stringify(await request(`/api/boards/${id}/collection/${args[0]}`,{identity:member.identity,actionId:option("--action"),...(args[0]==="owner-finish"?{stage:option("--stage"),evidence:option("--evidence")}:{})})));return;
+    console.log(JSON.stringify(await request(`/api/boards/${id}/collection/${args[0]}`,{identity:member.identity,actionId:option("--action"),...(args[0]==="owner-finish"?{stage:option("--stage"),evidence:option("--evidence")}:args[0]==="owner-reconcile"?{evidence:option("--evidence")}:{})})));return;
   }
   if(args[0]==="collect"){
     await selectedCaller(board);console.log(JSON.stringify(await request(`/api/boards/${id}/collection/refresh`,{})));return;

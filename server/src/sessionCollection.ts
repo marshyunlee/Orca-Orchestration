@@ -22,15 +22,17 @@ export function createSessionCollection(store:BoardStore,port=defaultPort){
   async begin(boardId:string):Promise<BoardSnapshot>{
    const before=await store.read(boardId);
    for(const member of before.members){
-    if(before.collection.requests.some(request=>sameBinding(request.member,member) && (!request.deliveryId || request.deliveryId===before.deliveryId) && !request.responsePath))continue;
-    const requestId=`collection_${randomUUID()}`;
-    await changeCollectedBoard(store,boardId,requestId,board=>{
+    const outstanding=(await store.read(boardId)).collection.requests.find(request=>sameBinding(request.member,member) && (!request.deliveryId || request.deliveryId===before.deliveryId) && !request.responsePath);
+    const requestId=outstanding?.id??`collection_${randomUUID()}`;
+    if(!outstanding)await changeCollectedBoard(store,boardId,requestId,board=>{
      if(!board.members.some(current=>sameBinding(current,member)) || board.collection.requests.some(request=>sameBinding(request.member,member) && (!request.deliveryId || request.deliveryId===board.deliveryId) && !request.responsePath))return board;
      board.collection.requests.push({id:requestId,member,deliveryId:board.deliveryId,createdAt:new Date().toISOString(),savedPath:null,savedCapturedAt:null,contextError:null,delivery:member.identity===board.coordinatorIdentity?'self':'pending',requestId:null,receiptPath:null,responsePath:null,respondedAt:null});return board;
     });
     const saved=await port.context(member).catch(error=>({available:false,capturedAt:null,references:[],text:'',error:String(error)}));
-    const path=await store.artifact(boardId,`context-${randomUUID()}`,JSON.stringify(saved));
-    await changeCollectedBoard(store,boardId,`${requestId}-context`,board=>{const request=board.collection.requests.find(request=>request.id===requestId);if(request){request.savedPath=path;request.savedCapturedAt=saved.capturedAt;request.contextError=saved.error;}return board;});
+    const encoded=JSON.stringify(saved);
+    if(outstanding?.savedPath && await store.readArtifact(boardId,outstanding.savedPath)===encoded)continue;
+    const path=await store.artifact(boardId,`context-${randomUUID()}`,encoded);
+    await changeCollectedBoard(store,boardId,`context-update-${randomUUID()}`,board=>{const request=board.collection.requests.find(request=>request.id===requestId);if(request){request.savedPath=path;request.savedCapturedAt=saved.capturedAt;request.contextError=saved.error;}return board;});
    }
    try{
     const board=await store.read(boardId);if(!board.members.length)return board;
@@ -53,6 +55,7 @@ export function createSessionCollection(store:BoardStore,port=defaultPort){
    const body=[`At your next safe checkpoint, contribute a bounded summary to existing-session board ${board.id}. This adds visibility to your current work; preserve your task, Run, session, mailbox and approval scope. Do not call group-init or create a Dispatch for this request.`,
     `CLI: ${process.env.ORCA_BOARD_CLI??'boardctl'} collection-publish --board ${board.id} --request ${request.id} --file <summary.json> --terminal ${request.member.terminalHandle} --url ${url} --token-file ${join(runtime,`token-${new URL(url).port||80}`)}.`,
     `Write summary JSON under ${join(store.root,board.id,'artifacts')}. Run boardctl --help for its exact schema. Include goals, acceptedScope, blockers, documents and items with stable itemId, title, content, status, references and dependencies. Narrative native is null; use only observed native identities. Preserve stable item IDs on later refreshes. Your sourceIdentity is ${request.member.identity}.`,
+    `Known native tasks associated with your session: ${JSON.stringify(board.nodes.filter(node=>node.imported?.native && node.imported.sourceIdentities.includes(request.member.identity)).map(node=>({itemId:node.imported!.itemId,native:node.imported!.native,title:node.title,ownerIdentity:node.imported!.ownerIdentity,ownerHandle:node.imported!.ownerHandle})))}. Reuse these exact bindings when describing the same task. native:null is only for work without a native Task.`,
     'Reply when safe. An enqueue receipt is not a response or evidence of completion.'].join('\n');
    const operation:NativeOperation={kind:'send-summary',terminalHandle:request.member.terminalHandle,body};
    await changeCollectedBoard(store,boardId,`${requestId}-sending`,current=>{const entry=current.collection.requests.find(entry=>entry.id===requestId)!;if(entry.delivery!=='pending')throw new Error('Summary delivery already began');entry.delivery='sending';return current;});
@@ -81,7 +84,7 @@ export function createSessionCollection(store:BoardStore,port=defaultPort){
      if(!item.native)return {...item,workspacePath:request.member.workspacePath,resultPath:results.get(item.itemId)??null,references:[...item.references,path]};
      const existing=board.nodes.find(node=>node.imported?.key===importedSourceKey(item))?.imported;
      if(!existing || !existing.sourceIdentities.includes(identity))throw new Error('Native work requires observed source association');
-     return {...item,native:existing.native,ownerIdentity:existing.ownerIdentity,ownerHandle:existing.ownerHandle,status:existing.status,resultPath:existing.resultPath,references:[...item.references,path]};
+     return {...item,workspacePath:existing.workspacePath,native:existing.native,ownerIdentity:existing.ownerIdentity,ownerHandle:existing.ownerHandle,status:existing.status,resultPath:existing.resultPath,references:[...item.references,path]};
     });
     mergeImportedWork(board,items);
     board.messages.push({id:`summary_${digestValue(requestId)}`,author:identity,createdAt:entry.respondedAt,body:`Goals: ${summary.goals}\nAccepted scope: ${summary.acceptedScope}\nBlockers: ${summary.blockers}\nDocuments: ${summary.documents.join(', ')}\nSource: ${path}`});return board;

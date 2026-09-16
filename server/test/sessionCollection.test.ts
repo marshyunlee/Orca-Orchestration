@@ -38,3 +38,27 @@ test('collection delivery admits once and retains uncertain original identity',a
   assert.equal((await store.read(board.id)).collection.requests[1].requestId,'original');
  }finally{await store.close();await rm(root,{recursive:true,force:true});}
 });
+
+test('late delivery cannot change a new increment and narrative completion retains attributed evidence',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'collection-history-')),store=await createBoardStore(root);
+ try{
+  let board=await store.create({title:'Group',members:[owner],coordinatorIdentity:owner.identity},'create');
+  const collection=createSessionCollection(store,{verify:async value=>value,context:async()=>({available:false,capturedAt:null,references:[],text:'',error:null}),discover:async()=>({items:[],tasks:[]})});
+  await collection.begin(board.id);board=await store.read(board.id);const old=board.collection.requests[0];
+  await store.update(board.id,board.revision,'increment',value=>({...value,deliveryId:'new-delivery'}));
+  await collection.publish(board.id,old.id,owner.identity,summary);assert.equal((await store.read(board.id)).messages.length,0);
+  await collection.begin(board.id);board=await store.read(board.id);const latest=board.collection.requests.at(-1)!;
+  await collection.publish(board.id,latest.id,owner.identity,{...summary,items:[{itemId:'done',sourceIdentity:owner.identity,ownerIdentity:owner.identity,ownerHandle:owner.terminalHandle,native:null,title:'Finished work',content:{prompt:'Scope',plan:'',design:'',implementationNotes:''},status:'completed',observedAt:'today',references:['proof'],dependencies:[],resultPath:null,result:'Verified result'}]});
+  const source=(await store.read(board.id)).nodes[1].imported!;assert.ok(source.resultPath);assert.match(await store.readArtifact(board.id,source.resultPath!),/Verified result/);assert.equal(source.resultRevision,1);
+ }finally{await store.close();await rm(root,{recursive:true,force:true});}
+});
+
+test('refresh reloads saved context while reusing an outstanding summary request',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'collection-context-')),store=await createBoardStore(root);let text='old';
+ try{
+  const board=await store.create({title:'Group',members:[owner],coordinatorIdentity:owner.identity},'create');
+  const collection=createSessionCollection(store,{verify:async value=>value,context:async()=>({available:true,capturedAt:'today',references:[],text,error:null}),discover:async()=>({items:[],tasks:[]})});
+  await collection.begin(board.id);text='new';await collection.begin(board.id);
+  const current=await store.read(board.id);assert.equal(current.collection.requests.length,1);assert.match(await store.readArtifact(board.id,current.collection.requests[0].savedPath!),/new/);
+ }finally{await store.close();await rm(root,{recursive:true,force:true});}
+});

@@ -16,7 +16,7 @@ boardctl create --title "Delivery" --members '["SKILL","WORKER"]' --request "The
 boardctl resume --board <exact-board-id>
 ```
 
-`create` reads one session inventory, includes the actual caller as coordinator, creates the same board the UI shows, and queues group discussion. Names select exact tab labels; duplicate labels return source-qualified identities for the human to choose. Reuse the action ID only for the same request. `resume --title <exact-title>` is allowed only for a unique match; otherwise use the ID. Resume verifies the caller's current coordinator/component-master role and reads existing state; it does not create a Run or grant an additional group round. Read queued actions and continue the authorized request in that role.
+`create` reads one session inventory, includes the actual caller as coordinator, creates the same board the UI shows, and queues existing-session collection. Names select exact tab labels; duplicate labels return source-qualified identities for the human to choose. Reuse the action ID only for the same request. `resume --title <exact-title>` is allowed only for a unique match; otherwise use the ID. Resume verifies the caller's current coordinator/component-master/owner/member role and reads existing state; it does not create a Run or grant an additional group round. Read queued actions and continue the authorized request in that role.
 
 For a board request, use the exact board ID, action ID, server URL, and `boardctl` path in the request. Run `boardctl --help`, then `read --board <id> --url <url>`. Commands run inside the selected coordinator session, whose source-qualified identity, terminal incarnation and host must match the board. When the tool shell does not inherit Orca identity, pass --terminal <your-own-handle>; native inventory still verifies its current source, incarnation and host. A nondefault runtime also needs --token-file <private-runtime/token-PORT>. Never select another session to impersonate it.
 
@@ -33,6 +33,7 @@ Planning-only requests create documents under work-vault without starting worker
 
 | Action | Coordinator responsibility |
 |---|---|
+| collect-work | Read saved/native evidence, send each pending collection request once, publish your own summary, then synthesize available goals and scope. No group-init or Run rebinding. |
 | discuss | Run `group-init`, follow the group skill's finite discussion rounds, collect attributed contributions, publish the canonical discussion and a spec proposal. |
 | generate-tasks | Propose task nodes and dependencies from the approved Run root. Propose exact selected member identities or explicitly configured new workers. |
 | review-graph | Review current graph/spec/results; propose expected examples or mockups, behavior and acceptance criteria. Run no implementation for Preview. |
@@ -45,6 +46,30 @@ Planning-only requests create documents under work-vault without starting worker
 | reconcile | Read its targetActionId, run `reconcile --action <target>`, inspect the outcome, then execute this request. |
 
 `boardctl --help` contains complete JSON proposal examples. Spec proposals include attributed messages. Graph proposals include each node's prompt, plan, design, implementation notes, position and assignment, plus edges. Preview proposals carry the current specDigest and graphDigest from `read`. Optional Preview images are PNG/JPEG/WebP/GIF base64 objects with captions; each is bounded to 1 MB and the request to 2 MB. They are served as protected artifacts. Every task brief names target files/workspace, bounded change, constraints, ownership and observable acceptance.
+
+## Existing sessions and ongoing work
+
+New group selects exact existing sessions and a coordinator before creation; an empty group is still supported. Context collection reads bounded saved session notes and relevant canonical links, then observes native task ownership. Duplicate names are displayed with source-qualified session IDs. Shared workspaces do not establish ownership. Local discovery accepts a live footer or persisted Orca session metadata whose PTY, pane incarnation and agent source exactly match the live terminal; contradictory or unavailable bindings stay unavailable.
+
+`collect --board <id>` refreshes saved/native context and requests fresh summaries. One outstanding request per member is retained across refresh/restart. As coordinator, read `collection.requests`, then run `collection-send --request <id>` for each pending other member. This sends a bounded native message at the next safe checkpoint. Publish your own request locally. Never launch a summary worker, call group-init, change the recipient's Run, or interrupt its work merely to collect context. Handle the collect-work action with the normal claim/publish flow; propose a specification from available responses and label missing context. Collection grants no specification approval.
+
+A requested member runs `collection-publish --request <id> --file <summary.json>` from its own session. All commands include the exact board, URL and private token-file specified by the request. Summary JSON:
+
+```json
+{"goals":"Current goal","acceptedScope":"Existing approval and limits","blockers":"","documents":[],"items":[{"itemId":"stable-item-id","sourceIdentity":"codex:SESSION","ownerIdentity":"codex:SESSION","ownerHandle":"OWN_HANDLE","native":null,"title":"Current work","content":{"prompt":"Original scope","plan":"Current plan","design":"","implementationNotes":""},"status":"running","observedAt":"2026-09-16T00:00:00Z","references":[],"dependencies":[],"resultPath":null}]}
+```
+
+Use stable author-assigned item IDs for narrative work. Native items must match an already observed `native` value `{hostId,runId,taskId,dispatchId}`; no invented native IDs or changed owners/status. `result` may contain concrete completed narrative evidence, which is saved with author attribution; native completion comes from native observation. Multiple sources merge only for an identical native task identity. Similar descriptions remain separate until the human uses Match this report to existing work and confirms the exact duplicate. The target retains native ownership; the duplicate becomes historical. Source updates preserve human-edited fields and show conflicting proposals. Removed nodes, manual edges and positions remain respected. Late responses from previous deliveries or removed/rebound members stay historical.
+
+For a stale owner action, `owner-reconcile --action <id> --evidence <text>` records the original owner investigation without replaying it; use it only after checking actual effects.
+
+An uncertain send stays unknown. `collection-reconcile --request <id>` inspects its original native request receipt; it never silently sends a second prompt. No request ID means investigate original native evidence before recovery. Enqueue is not acknowledgment, and no timer proves a safe checkpoint.
+
+Imported tasks keep their original owner and Run. Include the actual controlling owner in the group before using controls. An owner processes `import-control` through `owner-claim --action <id>`, handles its frozen node revision and Task/Dispatch within its own session, then records `owner-finish --action <id> --stage acknowledged|applied --evidence <text>`. Acknowledged means read; applied means the requested control was actually handled, supported by native receipts or attributed cooperative evidence. Neither receipt alone settles the task.
+
+Pause holds future board starts immediately and requests owner pause; admitted work may settle. The owner must check board requests before its future launches and report when its scheduler is paused. Resume preserves original approved scope; changed inputs require current Preview approval. Guidance targets the recorded Dispatch. Question answers use the original owner's mailbox and message ID. Stop/rerun settles existing work and child writers first, preserves sessions, and uses a new Task for changed inputs or native retry for unchanged failed inputs. Refresh collection after a replacement task is observed. Do not impersonate another owner or consume its inbox.
+
+For imported work, `launch` is rejected. New board tasks can depend on a completed imported result; its immutable evidence is frozen into the new prompt without cross-Run native dependencies. The HTTP server never schedules imported work. Independent owner schedulers participate cooperatively; the board cannot enforce their native launches. Collaborate children retain the existing admission adapter.
 
 ## Discussion and approval
 

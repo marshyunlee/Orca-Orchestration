@@ -149,7 +149,7 @@ export function createCoordinatorActions(store:BoardStore,port:CoordinatorPort=c
               root.content.design=proposal.text;root.revision++;board.specApproval=null;break;
             case "graph": {
               if(action.kind!=="generate-tasks" || !board.specApproval || board.specApproval.digest!==digestSpec(board) || !Array.isArray(proposal.nodes) || !Array.isArray(proposal.edges))throw new Error("Approved specification and task graph required");
-              for(const node of proposal.nodes){if(node.kind!=="task")throw new Error("Graph proposals contain task nodes only");validateContent(node.content);validateAssignment(node.assignment);if(node.collaborate && !board.members.some(member=>member.identity===node.collaborate!.masterIdentity))throw new Error("Component master must be a group member");}
+              for(const node of proposal.nodes){if(node.imported && !board.nodes.some(existing=>existing.id===node.id && existing.imported && JSON.stringify(existing.imported)===JSON.stringify(node.imported)))throw new Error("Imported provenance must come from observed collection");if(node.kind!=="task")throw new Error("Graph proposals contain task nodes only");validateContent(node.content);validateAssignment(node.assignment);if(node.collaborate && !board.members.some(member=>member.identity===node.collaborate!.masterIdentity))throw new Error("Component master must be a group member");}
               for(const existing of board.nodes.filter(node=>node.imported)){
                 const replacement=proposal.nodes.find(node=>node.id===existing.id);
                 if(replacement && JSON.stringify(replacement)!==JSON.stringify(existing))throw new Error("Edit imported work through its saved node and owner controls");

@@ -24,6 +24,17 @@ export function applyBoardEdit(board: BoardSnapshot, operation: BoardEdit): Boar
   const target = "nodeId" in operation ? board.nodes.find(node=>node.id===operation.nodeId && !node.removed) : undefined;
   if ("nodeId" in operation && !target) throw new Error("Node not found");
   switch (operation.kind) {
+    case "merge-import": {
+      const destination=board.nodes.find(node=>node.id===operation.targetNodeId && !node.removed);
+      if(!target!.imported || target!.imported.native || !destination?.imported || destination.id===target!.id)throw new Error("Confirm a narrative duplicate and its existing target");
+      if(board.actions.some(action=>action.nodeId===target!.id && ['queued','claimed','unknown'].includes(action.phase)))throw new Error("Reconcile duplicate controls before merging");
+      destination.imported.sourceIdentities=[...new Set([...destination.imported.sourceIdentities,...target!.imported.sourceIdentities])];
+      destination.imported.references=[...new Set([...destination.imported.references,...target!.imported.references])];
+      target!.removed=true;
+      board.edges=board.edges.map(edge=>({...edge,source:edge.source===target!.id?destination.id:edge.source,target:edge.target===target!.id?destination.id:edge.target})).filter(edge=>edge.source!==edge.target);
+      board.edges=board.edges.filter((edge,index,edges)=>edges.findIndex(other=>other.source===edge.source && other.target===edge.target)===index);
+      return board;
+    }
     case "resolve-import": {
       if(!target!.imported || !Array.isArray(operation.fields))throw new Error("Imported proposal required");
       for(const field of operation.fields){

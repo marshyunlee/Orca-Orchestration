@@ -4,7 +4,7 @@ import {importedHasWriter} from '../../shared/imports.js';
 import {verifyGroupMember} from './sessionDiscovery.js';
 import type {BoardStore} from './boardStore.js';
 import {digestNodeInput,digestValue} from './boardGraph.js';
-export const importControlKinds=['guidance','pause','resume','stop-rerun','answer-question'] as const;
+export const importControlKinds=['guidance','pause','resume','stop-rerun','answer-question','reconcile'] as const;
 export function importedActionOwner(action:ActionRecord):string|null{return action.kind==='import-control' && isRecord(action.payload) && isRecord(action.payload.owner)?String(action.payload.owner.identity):null;}
 export function hasImportedWork(board:BoardSnapshot,nodeId:string):boolean {
  const work=board.nodes.find(node=>node.id===nodeId)?.imported;
@@ -32,6 +32,13 @@ export function createImportControls(store:BoardStore,verify:(member:MemberRef)=
   return {board,action,node};
  }
  return {
+  async reconcile(boardId:string,actionId:string,identity:string,evidence:string):Promise<BoardSnapshot>{
+   const board=await store.read(boardId),action=board.actions.find(action=>action.id===actionId);
+   if(!action || importedActionOwner(action)!==identity || !isRecord(action.payload) || typeof evidence!=='string' || !evidence.trim())throw new Error('Original owner and reconciliation evidence required');
+   const owner=action.payload.owner as unknown as MemberRef;await verify(owner);
+   const path=await store.artifact(boardId,`owner-reconciliation-${randomUUID()}`,JSON.stringify({identity,actionId,evidence,original:action}));
+   return store.update(boardId,board.revision,`${actionId}-reconciled`,current=>{const entry=current.actions.find(entry=>entry.id===actionId)!;entry.phase='failed';entry.error=`Reconciled without replay: ${evidence}`;entry.receiptPath=path;return current;});
+  },
   async queue(boardId:string,revision:number,actionId:string,nodeId:string,control:string,body:string,messageId?:string):Promise<BoardSnapshot>{
    if(!(importControlKinds as readonly string[]).includes(control) || typeof body!=='string')throw new Error('Invalid owner control');
    return store.update(boardId,revision,actionId,board=>{

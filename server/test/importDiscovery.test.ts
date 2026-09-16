@@ -39,3 +39,15 @@ test('Run inventory pagination and each Run task fetch occur exactly once',async
  const result=await discoverImportedWork([worker],[owner,worker],native);
  assert.equal(result.items.length,2);assert.equal(calls.filter(call=>call==='tasks run').length,1);assert.equal(calls.filter(call=>call==='tasks second').length,1);
 });
+
+test('native rediscovery preserves enriched source content and the last observed Dispatch',async()=>{
+ const {createBoardStore}=await import('../src/boardStore.js');const {mergeImportedWork}=await import('../src/importMerge.js');const {persistImportedItems}=await import('../src/importDiscovery.js');
+ const root=await mkdtemp(join(tmpdir(),'source-refresh-')),store=await createBoardStore(root);
+ try{
+  let board=await store.create({title:'Sources',members:[],coordinatorIdentity:''},'create');
+  const [item]=selectImportedTasks([owner],[owner],[run],new Map([['run',[task('one')]]]));
+  board=await store.update(board.id,board.revision,'enrich',value=>{mergeImportedWork(value,[{...item,content:{...item.content,plan:'Fresh agent plan'}}]);return value;});
+  const [updated]=await persistImportedItems(store,board,[{...item,native:{...item.native!,dispatchId:null}}],[]);
+  assert.equal(updated.content.plan,'Fresh agent plan');assert.equal(updated.native?.dispatchId,'dispatch_one');
+ }finally{await store.close();await rm(root,{recursive:true,force:true});}
+});
