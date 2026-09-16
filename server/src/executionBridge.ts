@@ -42,7 +42,9 @@ export function createExecutionBridge(store:BoardStore, members={verify:verifyGr
       }else workspacePath=node.assignment.workspacePath;
       if(before.pauseNewStarts || before.pausedNodeIds.includes(nodeId))throw new Error("Starts are paused for this task");
       const dependencyEvidence=resolveBoardDependencies(before,nodeId);
-      const promptPath=await store.artifact(boardId,`prompt-${randomUUID()}`,`# ${node.title}\n\n${node.content.prompt}\n\nPlan:\n${node.content.plan}\n\nDesign:\n${node.content.design}\n\nImplementation notes:\n${node.content.implementationNotes}\n\nFrozen dependency results: ${JSON.stringify(dependencyEvidence)}\nBoard: ${boardId}; node: ${node.id}; revision: ${node.revision}; launch: ${actionId}.\nWork only in the assigned workspace: ${workspacePath}. Preserve unrelated changes. Report using the native injected lifecycle IDs. Ask the coordinator about missing requirements.\n`);
+      const dependencyResults=await Promise.all(dependencyEvidence.map(async evidence=>({evidence,content:evidence.artifactPath?await store.readArtifact(boardId,evidence.artifactPath):null})));
+      const specification=before.nodes.find(candidate=>candidate.kind==='run' && !candidate.removed)?.content;
+      const promptPath=await store.artifact(boardId,`prompt-${randomUUID()}`,`# ${node.title}\n\n${node.content.prompt}\n\nPlan:\n${node.content.plan}\n\nDesign:\n${node.content.design}\n\nImplementation notes:\n${node.content.implementationNotes}\n\nApproved root specification: ${JSON.stringify(specification)}\n\nFrozen dependency results: ${JSON.stringify(dependencyResults)}\nBoard: ${boardId}; node: ${node.id}; revision: ${node.revision}; launch: ${actionId}.\nWork only in the assigned workspace: ${workspacePath}. Preserve unrelated changes. Report using the native injected lifecycle IDs. Ask the coordinator about missing requirements.\n`);
       const after=await store.update(boardId,before.revision,`admit-${actionId}`,board=>{
         assertWorkspaceAvailable(workspacePath);
         if(board.pauseNewStarts || board.pausedNodeIds.includes(nodeId))throw new Error("Starts are paused for this task");
