@@ -42,8 +42,17 @@ export async function fetchConfig(): Promise<Partial<ViewerConfig>> {
 export async function saveConfig(patch: Partial<ViewerConfig>): Promise<void> {
   const res = await fetch("/api/config", {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "x-board-token": (await get<{token:string}>("/api/auth")).token },
     body: JSON.stringify(patch),
   });
   if (!res.ok) throw new ApiError(`HTTP ${res.status}`);
+}
+
+let boardToken: Promise<string> | undefined;
+export async function boardRequest<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  boardToken ??= get<{token:string}>("/api/auth").then(result=>result.token).catch(error=>{boardToken=undefined;throw error;});
+  const response=await fetch(path,{method:body===undefined?"GET":"POST",signal,headers:{"Content-Type":"application/json","x-board-token":await boardToken},body:body===undefined?undefined:JSON.stringify(body)});
+  const result=await response.json();
+  if(!response.ok) throw new ApiError(result.error ?? `HTTP ${response.status}`);
+  return result as T;
 }

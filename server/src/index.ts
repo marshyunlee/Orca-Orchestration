@@ -1,6 +1,10 @@
 import express from "express";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { mkdir, readFile, writeFile, chmod } from "node:fs/promises";
+import { homedir } from "node:os";
+import { randomBytes } from "node:crypto";
+import { createBoardStore } from "./boardStore.js";
 import { fileURLToPath } from "node:url";
 import { dirname, extname, join } from "node:path";
 import { runOrca } from "./orca";
@@ -50,7 +54,20 @@ if (argv.includes("uninstall")) {
   process.exit(0);
 }
 
-const app = createViewerApp(WORKSPACE_DIR);
+const tokenDirectory = process.env.ORCA_BOARD_RUNTIME ?? join(homedir(), ".local", "state", "orca-board");
+await mkdir(tokenDirectory, {recursive:true, mode:0o700});
+const tokenPath = join(tokenDirectory, `token-${PORT}`);
+let token: string;
+try { token = await readFile(tokenPath,"utf8"); }
+catch(error) {
+  if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  token = randomBytes(32).toString("hex");
+  await writeFile(tokenPath,token,{flag:"wx",mode:0o600});
+}
+await chmod(tokenPath,0o600);
+const boardStore = await createBoardStore(process.env.ORCA_BOARD_ROOT ?? join(homedir(),"work-vault","sessions","orca-boards"));
+const app = createViewerApp(WORKSPACE_DIR, {store:boardStore,token,developmentOrigin:process.env.ORCA_BOARD_DEV_ORIGIN});
+for (const signal of ["SIGINT","SIGTERM"] as const) process.once(signal,()=>{void boardStore.close().finally(()=>process.exit(0));});
 
 // --- Serve the built SPA -------------------------------------------------
 // Two sources, in priority order:
