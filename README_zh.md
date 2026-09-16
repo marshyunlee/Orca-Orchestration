@@ -67,3 +67,5 @@ Imported tasks retain their original Run, Task, Dispatch and execution owner. Th
 Context and receipts persist with the board under `~/work-vault/sessions/orca-boards`. `ORCA_WORK_VAULT` optionally selects the saved-context vault. `boardctl --help` documents `collect`, `collection-send`, `collection-publish`, `collection-reconcile`, `owner-claim`, `owner-finish` and `owner-reconcile`. Collection creates no new native Run or summary Dispatch. Human edits, positions and removed source edges survive refresh.
 
 Human steps: select sessions/coordinator, review overlapping source edits, and include the task's actual owner if it is outside the group. The server remains headless.
+
+Questions answered through the board retain owner receipts. Native read-only mailbox inspection does not expose external answer state; settled tasks disable further replies and retain the question as history without claiming an observed answer.

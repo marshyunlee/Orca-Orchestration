@@ -1,3 +1,4 @@
+import {getQuestionState} from '../../shared/questions.js';
 import {runOrca} from './orca.js';
 import {createHash,randomUUID} from "node:crypto";
 import type {BoardStore} from "./boardStore.js";
@@ -57,13 +58,13 @@ export function createActionExecutor(store:BoardStore,native={runOrca}){
       if(!attempt.ownsProcess && !attempt.stopped){
         if(data.stopRequested)return {operation:null,token:null,waiting:"Waiting for member-confirmed stopped work"};
         operation={kind:"send-guidance",dispatchId:attempt.dispatchId,body:`The human requested Stop and rerun for board ${boardId}, node ${node.id}. Stop current work and all child writers at the next checkpoint; preserve this agent session. Once no writer remains, run ${process.env.ORCA_BOARD_CLI??"boardctl"} attest-stop --board ${boardId} --attempt ${attempt.id} --evidence "Describe the stopped work and verification" --url ${process.env.ORCA_BOARD_URL??`http://127.0.0.1:${process.env.PORT??8787}`}, then end this turn and idle. The coordinator will fence the old Dispatch and prepare the revised task. Do not start new work.`};
-        const question=before.messages.find(message=>message.nativeMessageId && !message.answered && message.author===`dispatch:${attempt.dispatchId}`);
+        const question=before.messages.find(message=>message.nativeMessageId && getQuestionState(before,message)==="pending" && message.author===`dispatch:${attempt.dispatchId}`);
         if(question?.nativeMessageId)operation={kind:"reply-question",messageId:question.nativeMessageId,body:operation.body};
       }else operation={kind:"stop-worker",dispatchId:attempt.dispatchId};
       break;
     case "answer-question":{
       const fields=isRecord(data.data)?data.data:{};
-      const message=before.messages.find(message=>message.nativeMessageId===fields.messageId && !message.answered);
+      const message=before.messages.find(message=>message.nativeMessageId===fields.messageId && getQuestionState(before,message)==="pending");
       if(!message?.nativeMessageId)throw new Error("Unanswered native question not found");
       if(message.importedNodeId)throw new Error("Route imported questions through their original owner");
       if(message.componentNodeId)throw new Error("Route component questions through their master");

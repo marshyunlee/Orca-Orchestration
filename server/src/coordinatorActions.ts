@@ -1,3 +1,4 @@
+import {getQuestionState} from '../../shared/questions.js';
 import {importedActionOwner,importedControlPrompt,hasImportedWork} from './importControls.js';
 import { componentActionKinds, componentActionPrompt } from "./componentPrompt.js";
 import { resolveBoardDependencies } from "./boardDependencies.js";
@@ -39,7 +40,7 @@ export function createCoordinatorActions(store:BoardStore,port:CoordinatorPort=c
         if(componentActionKinds.includes(kind)){
           const node=isRecord(payload)?board.nodes.find(node=>node.id===payload.nodeId && !node.removed):null;
           if(!node?.collaborate || !board.members.some(member=>member.identity===node.collaborate!.masterIdentity))throw new Error("Component master required");
-          if(kind==="component-question" && (!isRecord(payload) || !board.messages.some(message=>message.componentNodeId===node.id && message.nativeMessageId===payload.messageId && !message.answered)))throw new Error("Pending question from this component required");
+          if(kind==="component-question" && (!isRecord(payload) || !board.messages.some(message=>message.componentNodeId===node.id && message.nativeMessageId===payload.messageId && getQuestionState(board,message)==="pending")))throw new Error("Pending question from this component required");
           if(kind==="component-start"){
             if(board.actions.some(action=>action.nodeId===node.id && action.kind===kind && ['queued','claimed','unknown'].includes(action.phase)))return board;
             const result=board.components[node.id]?.result;

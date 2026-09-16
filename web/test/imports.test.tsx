@@ -16,3 +16,12 @@ test('collection and imported controls show pending replies, original owner and 
  const panel=renderToStaticMarkup(<ImportedTaskPanel board={board} node={board.nodes[1]} onEdit={()=>{}}/>);
  assert.match(panel,/Agent-reported/);assert.match(panel,/cooperative/);assert.match(panel,/codex:one/);assert.match(panel,/Pause owner/);
 });
+import {RunPanel} from '../src/components/RunPanel.js';
+test('settled imported questions remain history without actionable reply buttons',()=>{
+ const board=createBoardSnapshot('board_test','Existing',[member],member.identity);
+ mergeImportedWork(board,[{itemId:'task',sourceIdentity:member.identity,ownerIdentity:member.identity,ownerHandle:member.terminalHandle,native:{hostId:'local',runId:'run',taskId:'task',dispatchId:'dispatch'},title:'Work',content:{prompt:'Scope',plan:'',design:'',implementationNotes:''},status:'completed',observedAt:'today',references:[],dependencies:[],resultPath:null}]);
+ board.messages.push({id:'question',nativeMessageId:'native',importedNodeId:board.nodes[1].id,author:'dispatch:dispatch',body:'Ready?',createdAt:'today',answered:false});
+ const html=renderToStaticMarkup(<RunPanel board={board} onEdit={()=>{}} request='' onRequest={()=>{}}/>);
+ assert.match(html,/Task settled; question retained as history/);assert.doesNotMatch(html,/Send answer/);
+ assert.doesNotMatch(renderToStaticMarkup(<ImportedTaskPanel board={board} node={board.nodes[1]} onEdit={()=>{}}/>),/Send answer through owner/);
+});

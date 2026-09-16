@@ -1,3 +1,4 @@
+import {getQuestionState} from '../../shared/questions.js';
 import {randomUUID} from 'node:crypto';
 import {isRecord,type BoardSnapshot,type MemberRef,type ActionRecord} from '../../shared/board.js';
 import {importedHasWriter} from '../../shared/imports.js';
@@ -46,7 +47,7 @@ export function createImportControls(store:BoardStore,verify:(member:MemberRef)=
     const owner=board.members.find(member=>member.identity===node.imported!.ownerIdentity && member.terminalHandle===node.imported!.ownerHandle);
     if(!owner)throw new Error('Include the actual controlling owner in this group first');
     if(control==='resume' && JSON.stringify({title:node.title,content:node.content})!==JSON.stringify(node.imported.baseline) && board.acceptedNodeDigests[nodeId]!==digestNodeInput(board,nodeId))throw new Error('Approve the current revision through Preview and Start before owner resume');
-    if(control==='answer-question' && !board.messages.some(message=>message.importedNodeId===nodeId && message.nativeMessageId===messageId && !message.answered))throw new Error('Original pending question required');
+    if(control==='answer-question' && !board.messages.some(message=>message.importedNodeId===nodeId && message.nativeMessageId===messageId && getQuestionState(board,message)==="pending"))throw new Error('Original pending question required');
     if(control==='pause' || control==='stop-rerun')board.pausedNodeIds=[...new Set([...board.pausedNodeIds,nodeId])];
     board.actions.push({id:actionId,kind:'import-control',baseRevision:revision,phase:'queued',actor:'human',nodeId,requestId:null,receiptPath:null,error:null,payload:{body,control,messageId,owner:structuredClone(owner),nodeRevision:node.revision,native:node.imported.native,nativeDigest:digestValue(node.imported.native),delivery:'pending'}});return board;
    });

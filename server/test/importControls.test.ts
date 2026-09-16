@@ -55,3 +55,12 @@ test('explicit duplicate confirmation merges attribution while preserving native
  assert.equal(node.removed,true);assert.equal(target.imported?.native?.dispatchId,'dispatch');assert.ok(target.imported!.sourceIdentities.includes(owner.identity));
  mergeImportedWork(board,[{...node.imported!,title:'Late duplicate'}]);assert.equal(node.removed,true);
 });
+test('settled native imports reject stale question controls',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'owner-question-')),store=await createBoardStore(root);
+ try{
+  let board=await store.create({title:'Group',members:[owner],coordinatorIdentity:owner.identity},'create');const fixture=makeBoard();
+  fixture.node.imported!.native={hostId:'local',runId:'run',taskId:'task',dispatchId:'dispatch'};fixture.node.imported!.status='completed';
+  board=await store.update(board.id,board.revision,'setup',value=>({...value,nodes:[value.nodes[0],fixture.node],messages:[{id:'question',nativeMessageId:'native',importedNodeId:fixture.node.id,author:'dispatch:dispatch',body:'Proceed?',createdAt:'today',answered:false}]}));
+  await assert.rejects(createImportControls(store,async member=>member).queue(board.id,board.revision,'reply',fixture.node.id,'answer-question','Yes','native'),/pending question/);
+ }finally{await store.close();await rm(root,{recursive:true,force:true});}
+});
