@@ -1,3 +1,4 @@
+import { resolveBoardDependencies } from "./boardDependencies.js";
 import {assertWorkspaceAvailable} from "./workspaceLease.js";
 import { createHash, randomUUID } from "node:crypto";
 import type { BoardStore } from "./boardStore.js";
@@ -39,7 +40,9 @@ export function createExecutionBridge(store:BoardStore, members={verify:verifyGr
         await members.verify(member);if(!await members.idle(member))throw new Error("Assigned member is busy; wait without interrupting it");
         memberHandle=member.terminalHandle;workspacePath=member.workspacePath;
       }else workspacePath=node.assignment.workspacePath;
-      const promptPath=await store.artifact(boardId,`prompt-${randomUUID()}`,`# ${node.title}\n\n${node.content.prompt}\n\nPlan:\n${node.content.plan}\n\nDesign:\n${node.content.design}\n\nImplementation notes:\n${node.content.implementationNotes}\n\nBoard: ${boardId}; node: ${node.id}; revision: ${node.revision}; launch: ${actionId}.\nWork only in the assigned workspace: ${workspacePath}. Preserve unrelated changes. Report using the native injected lifecycle IDs. Ask the coordinator about missing requirements.\n`);
+      if(before.pauseNewStarts || before.pausedNodeIds.includes(nodeId))throw new Error("Starts are paused for this task");
+      const dependencyEvidence=resolveBoardDependencies(before,nodeId);
+      const promptPath=await store.artifact(boardId,`prompt-${randomUUID()}`,`# ${node.title}\n\n${node.content.prompt}\n\nPlan:\n${node.content.plan}\n\nDesign:\n${node.content.design}\n\nImplementation notes:\n${node.content.implementationNotes}\n\nFrozen dependency results: ${JSON.stringify(dependencyEvidence)}\nBoard: ${boardId}; node: ${node.id}; revision: ${node.revision}; launch: ${actionId}.\nWork only in the assigned workspace: ${workspacePath}. Preserve unrelated changes. Report using the native injected lifecycle IDs. Ask the coordinator about missing requirements.\n`);
       const after=await store.update(boardId,before.revision,`admit-${actionId}`,board=>{
         assertWorkspaceAvailable(workspacePath);
         if(board.pauseNewStarts || board.pausedNodeIds.includes(nodeId))throw new Error("Starts are paused for this task");
@@ -53,17 +56,12 @@ export function createExecutionBridge(store:BoardStore, members={verify:verifyGr
         if(retry && !board.actions.some(action=>action.kind==="stop-rerun" && action.phase==="applied" && action.nodeId===nodeId && isRecord(action.payload) && action.payload.attemptId===retry.id && action.payload.rerunReady))throw new Error("Choose Stop and rerun to authorize the failed attempt retry");
         if(memberHandle && board.attempts.some(attempt=>attempt.assigneeHandle===memberHandle && hasActiveWriter(attempt)))throw new Error("Member already has an active task");
         if(board.attempts.some(attempt=>attempt.nodeId===nodeId && attempt.nodeRevision===nodeRevision && attempt.nativeStatus==="completed"))throw new Error("This revision already completed; create an explicit follow-up revision");
-        const dependencies=board.edges.filter(edge=>edge.target===nodeId).flatMap(edge=>{
-          const predecessor=board.nodes.find(node=>node.id===edge.source)!;
-          if(predecessor.kind==="run")return [];
-          const attempt=board.attempts.filter(attempt=>attempt.nodeId===predecessor.id && (attempt.nodeRevision===predecessor.revision || attempt.acceptedForRevision===predecessor.revision) && attempt.nativeStatus==="completed").at(-1);
-          if(!attempt)throw new Error(`Unresolved predecessor ${predecessor.title}`);
-          return [{attemptId:attempt.id,taskId:attempt.taskId}];
-        });
-        if(retry && JSON.stringify(dependencies.map(item=>item.attemptId))!==JSON.stringify(retry.dependencyAttemptIds))throw new Error("Retry dependencies changed; review a revised task before launching");
+        const dependencies=dependencyEvidence.filter(item=>item.kind==="direct" && item.runId===board.implementationRunId && item.taskId).map(item=>({attemptId:item.evidenceId,taskId:item.taskId!}));
+        if(retry && JSON.stringify(dependencyEvidence.map(item=>item.evidenceId))!==JSON.stringify(retry.dependencyAttemptIds))throw new Error("Retry dependencies changed; review a revised task before launching");
+        if(retry?.dependencyEvidence && JSON.stringify(retry.dependencyEvidence)!==JSON.stringify(dependencyEvidence))throw new Error("Retry dependency results changed; review a revised task before launching");
         const coordinator=board.members.find(member=>member.identity===board.coordinatorIdentity);
         const permit:LaunchPermit={actionId,attemptId:`attempt_${randomUUID()}`,nodeId,nodeRevision,promptPath:retry?.promptPath??promptPath,title:selected.title,dependencies,assignment:selected.assignment!,caller:coordinator?{identity:coordinator.identity,terminalHandle:coordinator.terminalHandle,incarnationId:coordinator.incarnationId,hostId:coordinator.hostId}:null,runId:board.implementationRunId,memberHandle,workspacePath,...(retry?{retryOf:retry.dispatchId}:{})};
-        board.attempts.push({id:permit.attemptId,nodeId,nodeRevision,runId:permit.runId,taskId:retry?.taskId??"",dispatchId:"",assigneeHandle:memberHandle,ownsProcess:selected.assignment!.kind==="new-worker",nativeStatus:"admitted",workspacePath,promptPath:permit.promptPath,resultPath:null,guidancePaths:[],dependencyAttemptIds:dependencies.map(item=>item.attemptId),stopped:false});
+        board.attempts.push({id:permit.attemptId,nodeId,nodeRevision,runId:permit.runId,taskId:retry?.taskId??"",dispatchId:"",assigneeHandle:memberHandle,ownsProcess:selected.assignment!.kind==="new-worker",nativeStatus:"admitted",workspacePath,promptPath:permit.promptPath,resultPath:null,guidancePaths:[],dependencyAttemptIds:dependencyEvidence.map(item=>item.evidenceId),dependencyEvidence,stopped:false});
         board.actions.push({id:actionId,kind:"launch",baseRevision:before.revision,phase:"queued",actor:board.coordinatorIdentity,nodeId,requestId:null,receiptPath:null,error:null,payload:{permit}});
         return board;
       });

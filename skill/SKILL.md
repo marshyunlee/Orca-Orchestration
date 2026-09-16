@@ -9,6 +9,15 @@ A board is the editable group workspace. Its Run node is the discussion/specific
 
 ## Enter the workflow
 
+A fresh `$orca-dag` request can start in chat. Resolve the packaged CLI (`~/.orca/orca-dag` in utils; `dist-npm/bin/boardctl.mjs` in the installed package), then run:
+
+```text
+boardctl create --title "Delivery" --members '["SKILL","WORKER"]' --request "The human request" --action <stable-request-id>
+boardctl resume --board <exact-board-id>
+```
+
+`create` reads one session inventory, includes the actual caller as coordinator, creates the same board the UI shows, and queues group discussion. Names select exact tab labels; duplicate labels return source-qualified identities for the human to choose. Reuse the action ID only for the same request. `resume --title <exact-title>` is allowed only for a unique match; otherwise use the ID. Resume verifies the caller's current coordinator/component-master role and reads existing state; it does not create a Run or grant an additional group round. Read queued actions and continue the authorized request in that role.
+
 For a board request, use the exact board ID, action ID, server URL, and `boardctl` path in the request. Run `boardctl --help`, then `read --board <id> --url <url>`. Commands run inside the selected coordinator session, whose source-qualified identity, terminal incarnation and host must match the board. Do not fabricate environment variables to impersonate it.
 
 Ordinary human operation is through the web UI; agents use the packaged CLI. In utils the launcher is `node ~/.orca/orca-dag/start.mjs`, normally at `http://127.0.0.1:8787`. Other installations use their built entrypoint. Read `orca skills get orchestration` before native coordination, with the installed selected executable. Load conditional references for recovery, placement, or mailbox details only when needed.
@@ -58,6 +67,29 @@ Stop an owned worker through its native lifecycle. For an existing member, reque
 Unknown outcomes remain unknown. `reconcile` reads the original request ID: completed requests use their stored receipt; pending requests replay the exact operation with `--retry-request`. With no request ID, inspect exact native task/dispatch/resource evidence before recovery; absence proves nothing. Never repeat a launch blindly.
 
 After accepted settlement, reuse, retain when requested, or release the worker. Release preserves pre-existing member sessions. Do not end with an owned reclaimable terminal or unread delivered messages. A stopped member attestation is evidence about writers; an enqueue receipt alone is not.
+
+## Collaborate component nodes
+
+A component is one task node with `assignment:null` and:
+
+```json
+{"collaborate":{"masterIdentity":"codex:SESSION","manifestPath":"/absolute/work-vault/sessions/collaborate/HOST/RUN/manifest.json"}}
+```
+
+The coordinator proposes this binding; the human can edit it in the task panel. `launch --node <id>` queues a component action to that master. Never dispatch the master as a parent worker or transfer its Run. Preserve its registered feature checkout and native mailbox. Direct tasks retain their own attempt lifecycle.
+
+The component master uses the existing collaborate skill and these commands (all include `--board`, `--node`, `--url`):
+
+1. `component-claim --action <id>`; inspect the saved node and request. Keep original worker briefs immutable.
+2. Prepare the manifest and concrete gate, including `setup`, exact commands, baseline/overlay, human checks, selection preferences, repair policy, and feature-close scope. `component-refresh --action <id>` validates the master/feature/Run and registers admission. Finish the preparation action with `component-finish --action <id> --evidence <text>` so approval can wake continuation.
+3. The human approves the displayed package, or the master uses `component-approve --digest <digest> --source-file <json> --action <id>` with the actual matching chat response. Source JSON is `{"kind":"chat","reference":"/path/to/user-answer.md","response":"exact answer"}`. An identical approval is reused; a changed package or node revision requires new approval. Board Start does not approve an unseen component gate.
+4. Use the installed restricted `launch.py worker` for every implementation, review, repair and clean-context worker. Admission is discovered from the bound Task/Run. It checks pause/revisions before resource preparation and again immediately before worker-start. An unavailable board blocks new starts, while native settlement remains available. A paused prepared journal resumes with the same profile/terminal; an unknown Dispatch is reconciled using its original receipt/request. A completed journal with `board_record_error` retries receipt persistence only.
+5. During supervision, read component guidance/stop/question/reconciliation actions at every checkpoint. Claim each, act through the owning master and exact child Dispatch/message, and finish with receipt-backed evidence. Stop children without closing the master. A saved edit holds downstream starts; rerun needs the updated Preview/node and gate approvals. Completing an action acknowledges handling only; it never settles native workers.
+6. Archive reports into the manifest run directory. Publish `component-result --action <id> --file <json>` using `{"nodeRevision":1,"selectionPath":"/run/outcome/slice.json","candidateStatePath":"/bulk/candidates/impl-opus/state.json","gateResultPath":"/bulk/candidates/impl-opus/gate-result.json"}`. The server validates selection, current applied aggregate gate, opposite-family review and adjudication, preserving original Task/Dispatch IDs. Settle/reconcile all children first, then finish the component-start action. Report integration acceptance through a dependent task/component with its own concrete evidence.
+
+Expanded details show candidate/review/repair Tasks, frozen saved briefs and reports, exact gate approval, launch recovery references and selected result. Each downstream launch freezes predecessor result digests; cross-component Task IDs never become native dependencies. Pause blocks later child launches, including reviews/repairs. Apply and new increments remain blocked by unresolved component work. Earlier delivery snapshots retain their evidence.
+
+The local API trusts the local coordinator's recorded approval provenance; it is not cryptographic proof of a human click. Host-level masters can invoke native tools outside this cooperative protocol, so do not claim sandbox enforcement on masters.
 
 ## Implementation edits and increments
 

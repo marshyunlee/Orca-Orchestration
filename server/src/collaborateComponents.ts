@@ -1,3 +1,4 @@
+import { readComponentEvidence, readComponentText, verifySelectionRecord } from "./componentEvidence.js";
 import { registerComponentRun, type ComponentAssociation } from "./componentRegistry.js";
 import { resolveBoardDependencies } from "./boardDependencies.js";
 import { readFile, realpath } from 'node:fs/promises';
@@ -8,7 +9,7 @@ import { isAbsolute, join, relative } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { BoardStore } from './boardStore.js';
 import { isRecord, type BoardSnapshot, type MemberRef } from '../../shared/board.js';
-import type { ApprovalSource, ComponentState, ComponentTask, GatePackage, ComponentLaunchRequest, ComponentLaunch } from '../../shared/collaborate.js';
+import type { ApprovalSource, ComponentState, ComponentTask, GatePackage, ComponentLaunchRequest, ComponentLaunch, ComponentResultRequest } from '../../shared/collaborate.js';
 import { digestValue, digestNodeInput, digestSpec } from './boardGraph.js';
 import { verifyGroupMember } from './sessionDiscovery.js';
 import { runOrca } from './orca.js';
@@ -19,6 +20,9 @@ export interface CollaboratePorts {
   verifyMaster(member: MemberRef): Promise<MemberRef>;
   verifyFeature(path: string): Promise<void>;
   verifyRun(runId: string, terminalHandle: string): Promise<void>;
+  readEvidence?(path:string,manifestPath:string,manifest:Record<string,unknown>):Promise<{path:string;value:Record<string,unknown>}>;
+  readText?(path:string,manifestPath:string,manifest:Record<string,unknown>):Promise<{path:string;text:string}>;
+  verifySelection?(path:string):Promise<void>;
   registerBinding?(association:ComponentAssociation):Promise<void>;
 }
 function requiredText(value: unknown, label: string): string {
@@ -48,6 +52,9 @@ export const collaboratePorts: CollaboratePorts = {
   },
   verifyMaster: verifyGroupMember,
   registerBinding: registerComponentRun,
+  readEvidence: readComponentEvidence,
+  readText: readComponentText,
+  verifySelection: verifySelectionRecord,
   async verifyFeature(path) {
     const helper=process.env.ORCA_FEATURE_WORKTREE_HELPER;
     if (!helper) throw new Error('Configure the registered feature worktree helper');
@@ -106,6 +113,15 @@ export function createCollaborateComponents(store: BoardStore, ports: Collaborat
     const state:ComponentState={masterIdentity:identity,manifestPath:manifest.path,manifestDigest:digestComponentValue(manifest.value),runId,featureWorkspace,
       phase:typeof manifest.value.phase==='string'?manifest.value.phase:'planning',gate,gateDigest:componentGateDigest(board,nodeId,manifest.path,gate),
       approvals:prior?.approvals??[],launches:prior?.launches??[],result:prior?.result??null,tasks:projectComponentTasks(manifest.value),observedAt:new Date().toISOString()};
+    for(const task of state.tasks){
+      const previous=prior?.tasks.find(item=>item.taskId===task.taskId && item.dispatchId===task.dispatchId);
+      for(const [source,artifact] of [['briefPath','briefArtifact'],['reportPath','reportArtifact']] as const){
+        if(previous?.[artifact]){task[artifact]=previous[artifact];continue;}
+        if(!task[source] || !ports.readText || (artifact==='reportArtifact' && !['report_received','released','completed','succeeded'].includes(task.state)))continue;
+        try{const evidence=await ports.readText(task[source]!,manifest.path,manifest.value);task[artifact]=await store.artifact(board.id,`component-${artifact}-${randomUUID()}`,evidence.text);}
+        catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+      }
+    }
     const lifecycle=isRecord(manifest.value.lifecycle)?manifest.value.lifecycle:{};
     const dispatches=isRecord(lifecycle.dispatches)?lifecycle.dispatches:{};
     for(const launch of state.launches){
@@ -134,6 +150,46 @@ export function createCollaborateComponents(store: BoardStore, ports: Collaborat
     return {...inspected,dependencies,requestDigest,existing};
   }
   return {
+    async publishResult(boardId:string,nodeId:string,proposal:ComponentResultRequest,actionId:string):Promise<BoardSnapshot>{
+      const board=await store.read(boardId),{state,manifest,node}=await inspect(board,nodeId,proposal.identity);
+      if(node.revision!==proposal.nodeRevision || !state.approvals.some(approval=>approval.digest===state.gateDigest))throw new Error('Current component revision and gate approval required');
+      if(state.launches.some(launch=>launch.phase!=='settled') || state.tasks.some(task=>task.dispatchId && !['report_received','released','completed','succeeded'].includes(task.state)))throw new Error('Settle and reconcile component children before publishing a selected result');
+      if(!ports.readEvidence || !ports.verifySelection)throw new Error('Component evidence reader and validator required');
+      const read=(path:string)=>ports.readEvidence!(path,state.manifestPath,manifest);
+      const selection=await read(proposal.selectionPath),candidate=await read(proposal.candidateStatePath),gate=await read(proposal.gateResultPath);
+      await ports.verifySelection(selection.path);
+      const record=selection.value,candidateState=candidate.value,gateResult=gate.value;
+      if(record.run_id!==manifest.run_id || record.baseline_sha!==state.gate.baselineSha || record.gate_revision!==state.gate.overlayDigest)throw new Error('Selection belongs to a different component gate');
+      const candidates=Array.isArray(record.impl)?record.impl.filter(isRecord):[];
+      const chosen=candidates.find(item=>item.candidate_id===record.accepted);
+      if(!chosen || chosen.gate!=='pass' || candidateState.candidate_id!==chosen.candidate_id || candidateState.baseline_sha!==state.gate.baselineSha || !isRecord(candidateState.adjudication) || candidateState.adjudication.decision!=='accepted')throw new Error('Applied and adjudicated candidate selection required');
+      const snapshots=Array.isArray(candidateState.snapshots)?candidateState.snapshots.filter(isRecord):[];
+      const applications=Array.isArray(candidateState.applications)?candidateState.applications.filter(isRecord):[];
+      const snapshot=snapshots.at(-1),application=applications.at(-1);
+      if(!snapshot || snapshot.digest!==chosen.candidate_digest || !application || application.after_digest!==application.expected_after_digest)throw new Error('Selected candidate snapshot or application evidence is stale');
+      const aggregates=Array.isArray(candidateState.aggregates)?candidateState.aggregates.filter(isRecord):[];
+      const aggregate=aggregates.find(item=>item.sequence===application.aggregate);
+      if(!aggregate || aggregate.source_snapshot!==snapshot.sequence || aggregate.aggregate_digest!==application.expected_after_digest || !Array.isArray(aggregate.conflicts) || aggregate.conflicts.length)throw new Error('Application does not match the selected snapshot aggregate');
+      const source=isRecord(gateResult.source)?gateResult.source:{};
+      const sourceMatches=source.kind==='aggregate' && source.digest===application.expected_after_digest;
+      if(gateResult.candidate_id!==chosen.candidate_id || gateResult.gate_revision!==state.gate.overlayDigest || gateResult.passed!==true || gateResult.drifted===true || !sourceMatches || !Array.isArray(gateResult.commands) || gateResult.commands.some(command=>!isRecord(command) || command.exit_code!==0) || JSON.stringify(gateResult.commands.map(command=>(command as Record<string,unknown>).command))!==JSON.stringify(state.gate.commands))throw new Error('Passing exact gate evidence for the selected bytes required');
+      const reviews=Array.isArray(record.reviews)?record.reviews.filter(isRecord):[];
+      const opposite=chosen.family==='gpt'?'claude':chosen.family==='claude'?'gpt':null;
+      const matched=reviews.filter(review=>review.reviewed_candidate===chosen.candidate_id && review.reviewed_digest===snapshot.digest && review.reviewer_family===opposite);
+      if(!opposite || !matched.length)throw new Error('Opposite-family review of the selected snapshot required');
+      const reviewEvidence=[];
+      for(const review of matched){
+        const report=await read(requiredText(review.report_path,'Review report'));
+        const task=isRecord(manifest.tasks)?manifest.tasks[String(review.task_id)]:null;
+        if(!isRecord(task) || task.dispatch_id!==review.dispatch_id || report.value.dispatch_id!==review.dispatch_id || report.value.task_id!==review.task_id || report.value.outcome!=='succeeded')throw new Error('Matching successful native review evidence required');
+        reviewEvidence.push({path:report.path,digest:digestComponentValue(report.value),taskId:review.task_id,dispatchId:review.dispatch_id});
+      }
+      const evidence={selection:{path:selection.path,digest:digestComponentValue(record)},candidate:{path:candidate.path,digest:digestComponentValue(candidateState)},gate:{path:gate.path,digest:digestComponentValue(gateResult)},reviews:reviewEvidence};
+      const digest=digestComponentValue({nodeRevision:node.revision,gateDigest:state.gateDigest,evidence});
+      if(state.result?.digest===digest)return board;
+      const artifactPath=await store.artifact(boardId,`component-result-${randomUUID()}`,JSON.stringify(evidence));
+      return store.update(boardId,board.revision,actionId,current=>{state.result={id:actionId,nodeRevision:node.revision,gateDigest:state.gateDigest,candidateId:String(chosen.candidate_id),snapshotDigest:String(snapshot.digest),artifactPath,digest};state.phase='completed';current.components[nodeId]=state;for(const action of current.actions)if(action.nodeId===nodeId && action.kind==='component-start' && action.phase==='queued'){action.phase='applied';action.receiptPath=artifactPath;}return current;});
+    },
     async preflight(boardId:string,nodeId:string,request:ComponentLaunchRequest):Promise<ComponentLaunch>{
       const board=await store.read(boardId),checked=await checkLaunch(board,nodeId,request);
       if(checked.existing)return checked.existing;
@@ -166,13 +222,15 @@ export function createCollaborateComponents(store: BoardStore, ports: Collaborat
         const requestId=mutation.requestId??details.orchestrationRequestId??details.requestId;
         saved.requestId=typeof requestId==='string'?requestId:saved.requestId;
         saved.dispatchId=typeof result.dispatchId==='string'?result.dispatchId:saved.dispatchId;
-        saved.phase=raw.ok===true && result.state==='ready' && saved.dispatchId?'ready':raw.ok===false && result.state==='failed'?'failed':'unknown';
+        if(saved.phase!=='settled')saved.phase=raw.ok===true && result.state==='ready' && saved.dispatchId?'ready':raw.ok===false && result.state==='failed'?'failed':'unknown';
         saved.receiptPath=receiptPath;return current;
       });
     },
     async refresh(boardId:string,nodeId:string,identity:string,actionId:string):Promise<BoardSnapshot>{
       const board=await store.read(boardId),{state}=await inspect(board,nodeId,identity);
       await ports.registerBinding?.({boardId,nodeId,runId:state.runId,masterIdentity:identity,terminalHandle:board.members.find(member=>member.identity===identity)!.terminalHandle,manifestPath:state.manifestPath,url:process.env.ORCA_BOARD_URL??`http://127.0.0.1:${process.env.PORT??8787}`});
+      const prior=board.components[nodeId];
+      if(prior && digestComponentValue({...prior,observedAt:null})===digestComponentValue({...state,observedAt:null}))return board;
       return store.update(boardId,board.revision,actionId,current=>{current.components[nodeId]=state;return current;});
     },
     currentApproval(board:BoardSnapshot,nodeId:string) {
@@ -191,6 +249,8 @@ export function createCollaborateComponents(store: BoardStore, ports: Collaborat
       const artifactPath=await store.artifact(boardId,`gate-approval-${randomUUID()}`,JSON.stringify({gate:state.gate,digest,source,nodeId,nodeRevision:node.revision,deliveryId:board.deliveryId}));
       return store.update(boardId,board.revision,actionId,current=>{
         if(!state.approvals.some(approval=>approval.digest===digest))state.approvals.push({digest,nodeRevision:node.revision,deliveryId:board.deliveryId,source,artifactPath,recordedAt:new Date().toISOString()});current.components[nodeId]=state;
+        const continuationId=`gate-continue-${nodeId}-${digest}`;
+        if(!(state.result?.nodeRevision===node.revision && state.result.gateDigest===digest) && !current.actions.some(action=>action.id===continuationId))current.actions.push({id:continuationId,kind:'component-start',baseRevision:board.revision,phase:'queued',actor:'human',nodeId,requestId:null,receiptPath:null,error:null,payload:{body:'The human approved this exact gate. Continue the component through its restricted collaborate workflow.',data:{nodeId,gateDigest:digest},delivery:'pending'}});
         current.actions.push({id:actionId,kind:'approve-component-gate',baseRevision:board.revision,phase:'applied',actor:'human',nodeId,requestId:null,receiptPath:artifactPath,error:null,payload:{digest,source}});return current;
       });
     },

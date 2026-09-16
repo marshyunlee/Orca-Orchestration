@@ -82,3 +82,13 @@ Tests use Node's runner and the existing tsx dependency. `npm run build:npm` inc
 `orca-dag uninstall --dry-run` previews removal; `--purge` also removes the selected preference file. Uninstall preserves repository contents behind directory symlinks and can clean coordinator terminals left by older versions. Do not invoke it during observation or worker cleanup. Skill installation and uninstallation remain symmetric.
 
 Changes are pushed to the personal fork before advancing the utils submodule pointer and identical deployed skill mirror. Preserve the MIT copyright notice. Publishing an npm package or a release tag is outside the personal installation workflow.
+
+## Collaborate component integration
+
+Start or resume the same UI board from chat with the packaged `boardctl create` / `resume` commands. Component tasks use one expandable node. Select the component master and its collaborate manifest in the task panel; the master retains its registered feature workspace and native Run.
+
+The panel displays the exact gate package, implementation/review/repair history, saved briefs/reports, launch journals and selected-result evidence. Approve each concrete gate once in chat or UI. Gate or scope changes invalidate that approval. Guidance, stop preparation and question answers route to the component master. Pause blocks future restricted child launches, including reviews and repairs. Unknown receipts require reconciliation, never blind retries.
+
+The utils launcher also supplies `ORCA_FEATURE_WORKTREE_HELPER` and `ORCA_COLLABORATE_LEDGER_HELPER`. Standalone installations configure these existing collaborate/worktree helpers for component support. `ORCA_COLLABORATE_ROOT`, `ORCA_COLLABORATE_BULK_ROOT`, and `ORCA_BOARD_RUNTIME` can isolate fixture directories. Private tokens stay outside work-vault. See the packaged skill and `boardctl --help` for exact JSON examples and recovery commands.
+
+New human steps for component execution: select a master/manifest, approve its concrete gate when presented, and review changed gates before continuing. Direct task controls retain their existing workflow.

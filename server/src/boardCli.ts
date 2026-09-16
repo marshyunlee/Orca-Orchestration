@@ -48,6 +48,11 @@ async function main():Promise<void>{
   component-refresh --node <id> --action <id>  Refresh the bound manifest from its master
   component-approve --node <id> --digest <digest> --source-file <JSON> --action <id>
                                Record an actual human response to the exact gate
+  component-claim --node <id> --action <id>    Claim an action as its component master
+  component-finish --node <id> --action <id> --evidence <text>
+                               Record action handling; does not settle native workers
+  component-result --node <id> --action <id> --file <JSON>
+                               Publish validated selected candidate evidence
   launch --node <id>            Admit and start one ready node from this coordinator
   attest-stop --attempt <id> --evidence <text>   Member confirmation after stopping all work
   native --caller-file <json> --operation-file <json>
@@ -56,6 +61,10 @@ Proposal JSON:
   {"kind":"spec","text":"Specification","messages":[{"author":"codex:SESSION","body":"Contribution"}]}
   {"kind":"graph","nodes":[{"id":"task-name","kind":"task","title":"Task","revision":1,"content":{"prompt":"Self-contained task","plan":"","design":"","implementationNotes":""},"assignment":{"kind":"member","identity":"codex:SESSION"},"position":{"x":400,"y":100},"removed":false}],"edges":[{"id":"root-task","source":"RUN_NODE_ID","target":"task-name"}]}
   {"kind":"preview","text":"Expected examples, behavior and acceptance criteria","specDigest":"FROM_READ","graphDigest":"FROM_READ"}
+
+Component node: add "collaborate":{"masterIdentity":"codex:SESSION","manifestPath":"/absolute/work-vault/sessions/collaborate/HOST/RUN/manifest.json"}, with "assignment":null.
+Component result JSON: {"nodeRevision":1,"selectionPath":"/run/outcome/slice.json","candidateStatePath":"/bulk/candidates/impl-opus/state.json","gateResultPath":"/bulk/candidates/impl-opus/gate-result.json"}.
+Gate source JSON: {"kind":"chat","reference":"/work-vault/actual-user-answer.md","response":"EXACT USER APPROVAL"}. Reuse actual approval only for the matching digest.
 
 Preview proposals may include images: [{"mimeType":"image/png","base64":"...","caption":"Expected screen"}] (up to eight, 1 MB each; the full API payload is limited to 2 MB).
 Native operations run only inside the selected coordinator. Unknown receipts require reconciliation; never repeat an unknown mutation blindly.`);return;
@@ -94,11 +103,13 @@ Native operations run only inside the selected coordinator. Unknown receipts req
     if(!member)throw new Error("Run stop acknowledgment from the assigned member session");
     console.log(JSON.stringify(await request(`/api/boards/${id}/member/stopped`,{identity:member.identity,attemptId:option("--attempt"),evidence:option("--evidence")})));return;
   }
-  if(args[0]==="component-refresh" || args[0]==="component-approve"){
+  if(args[0]==="component-refresh" || args[0]==="component-approve" || args[0]==="component-result" || args[0]==="component-claim" || args[0]==="component-finish"){
     const role=resolveEntryRole(board,process.env.ORCA_TERMINAL_HANDLE??"");
     const nodeId=option("--node");
-    const operation=args[0]==="component-refresh"?"refresh":"approve";
+    const operation=args[0].slice("component-".length);
     const data:Record<string,unknown>={identity:role.identity,actionId:option("--action")};
+    if(operation==="finish")data.evidence=option("--evidence");
+    if(operation==="result")data.proposal={...JSON.parse(await readFile(option("--file"),"utf8")),identity:role.identity};
     if(operation==="approve"){
       data.digest=option("--digest");
       data.source=JSON.parse(await readFile(option("--source-file"),"utf8"));
@@ -164,6 +175,9 @@ Native operations run only inside the selected coordinator. Unknown receipts req
   if(args[0]==="launch"){
     const node=board.nodes.find(node=>node.id===option("--node"));if(!node)throw new Error("Node not found");
     const actionId=option("--action",randomUUID());
+    if(node.collaborate){
+      console.log(JSON.stringify(await request(`/api/boards/${id}/edit`,{baseRevision:board.revision,actionId,operation:{kind:"component-start",nodeId:node.id,body:"Execute the approved component scope using collaborate."}})));return;
+    }
     const permit=await request<LaunchPermit>(`/api/boards/${id}/coordinator/launch`,{identity:caller.identity,actionId,nodeId:node.id,nodeRevision:node.revision});
     if(!permit.caller || permit.caller.identity!==caller.identity || permit.caller.incarnationId!==caller.incarnationId)throw new Error("Launch belongs to a different coordinator incarnation");
     for(let step=0;step<2;step++){

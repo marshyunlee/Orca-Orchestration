@@ -47,3 +47,13 @@ node scripts/check-skill.mjs
 测试使用 Node runner 与 tsx；打包包含前端类型检查及构建。可选二进制构建需要 Bun。不要提交生成文件。卸载支持 `--dry-run`，`--purge` 额外删除所选偏好文件；保留符号链接后的仓库文件。卸载不是活动 worker 的清理方式。
 
 先推送个人 fork，再更新 utils 子模块与逐字一致的技能镜像。保留 MIT 声明，不发布 npm 包或 release tag。
+
+## Collaborate component integration
+
+Start or resume the same UI board from chat with the packaged `boardctl create` / `resume` commands. Component tasks use one expandable node. Select the component master and its collaborate manifest in the task panel; the master retains its registered feature workspace and native Run.
+
+The panel displays the exact gate package, implementation/review/repair history, saved briefs/reports, launch journals and selected-result evidence. Approve each concrete gate once in chat or UI. Gate or scope changes invalidate that approval. Guidance, stop preparation and question answers route to the component master. Pause blocks future restricted child launches, including reviews and repairs. Unknown receipts require reconciliation, never blind retries.
+
+The utils launcher also supplies `ORCA_FEATURE_WORKTREE_HELPER` and `ORCA_COLLABORATE_LEDGER_HELPER`. Standalone installations configure these existing collaborate/worktree helpers for component support. `ORCA_COLLABORATE_ROOT`, `ORCA_COLLABORATE_BULK_ROOT`, and `ORCA_BOARD_RUNTIME` can isolate fixture directories. Private tokens stay outside work-vault. See the packaged skill and `boardctl --help` for exact JSON examples and recovery commands.
+
+New human steps for component execution: select a master/manifest, approve its concrete gate when presented, and review changed gates before continuing. Direct task controls retain their existing workflow.

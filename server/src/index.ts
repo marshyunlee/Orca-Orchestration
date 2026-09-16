@@ -1,10 +1,12 @@
+import { randomUUID } from "node:crypto";
+import { createCollaborateComponents } from "./collaborateComponents.js";
 import express from "express";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile, chmod } from "node:fs/promises";
 import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
-import { refreshNativeBoard, refreshDiscussionStatus, observationErrors } from "./nativeObservation.js";
+import { refreshNativeBoard, refreshComponentQuestions, refreshDiscussionStatus, observationErrors } from "./nativeObservation.js";
 import { createCoordinatorActions } from "./coordinatorActions.js";
 import { createBoardStore } from "./boardStore.js";
 import { fileURLToPath } from "node:url";
@@ -71,16 +73,20 @@ const boardStore = await createBoardStore(process.env.ORCA_BOARD_ROOT ?? join(ho
 const app = createViewerApp(WORKSPACE_DIR, {store:boardStore,token,developmentOrigin:process.env.ORCA_BOARD_DEV_ORIGIN});
 process.env.ORCA_BOARD_CLI ??= existsSync(join(__dirname,"../../bin/boardctl.mjs")) ? `node ${JSON.stringify(join(__dirname,"../../bin/boardctl.mjs"))}` : `node --import tsx ${JSON.stringify(join(__dirname,"boardCli.ts"))}`;
 const coordinatorActions=createCoordinatorActions(boardStore);
+const componentService=createCollaborateComponents(boardStore);
 let checkingBoards=false;
 const deliveryTimer=setInterval(()=>{
   if(checkingBoards)return;checkingBoards=true;
   void boardStore.list().then(async boards=>{
     for(const board of boards){
-      const observed=await Promise.allSettled([refreshDiscussionStatus(board),refreshNativeBoard(boardStore,board.id)]);
+      const observed=await Promise.allSettled([refreshDiscussionStatus(board),refreshNativeBoard(boardStore,board.id), (async()=>{
+        for(const node of board.nodes.filter(node=>node.collaborate && !node.removed && board.components[node.id]))await componentService.refresh(board.id,node.id,node.collaborate!.masterIdentity,`component-observe-${randomUUID()}`);
+        await refreshComponentQuestions(boardStore,board.id);
+      })()]);
       const errors=observed.filter(result=>result.status==="rejected").map(result=>String((result as PromiseRejectedResult).reason)).filter(error=>!error.includes("revision conflict"));
       if(errors.length)observationErrors.set(board.id,errors.join("; "));else observationErrors.delete(board.id);
-      const queued=board.actions.find(action=>action.phase==="queued" && action.kind!=="launch" && (action.payload as {delivery?:string})?.delivery==="pending");
-      if(queued)try{await coordinatorActions.deliver(board.id,queued.id);}catch(error){console.error("Board delivery:",String(error));}
+      const queued=(await boardStore.read(board.id)).actions.filter(action=>action.phase==="queued" && action.kind!=="launch" && (action.payload as {delivery?:string})?.delivery==="pending");
+      for(const action of queued)try{await coordinatorActions.deliver(board.id,action.id);}catch(error){console.error("Board delivery:",String(error));}
     }
   }).catch(error=>console.error("Board refresh:",String(error))).finally(()=>{checkingBoards=false;});
 },3000);

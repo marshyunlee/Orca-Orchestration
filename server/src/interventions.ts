@@ -31,7 +31,7 @@ export function createActionExecutor(store:BoardStore){
     case "resume":
       break;
     case "start":
-      if(!before.implementationRunId)operation={kind:"create-run",objective:`${before.title} · ${before.deliveryId}`};
+      if(!before.implementationRunId && before.nodes.some(node=>node.kind==="task" && !node.removed && !node.collaborate))operation={kind:"create-run",objective:`${before.title} · ${before.deliveryId}`};
       break;
     case "guidance":
       if(!node || !attempt || !hasActiveWriter(attempt) || !attempt.dispatchId)throw new Error("No active attempt to guide");
@@ -51,6 +51,7 @@ export function createActionExecutor(store:BoardStore){
       const fields=isRecord(data.data)?data.data:{};
       const message=before.messages.find(message=>message.nativeMessageId===fields.messageId && !message.answered);
       if(!message?.nativeMessageId)throw new Error("Unanswered native question not found");
+      if(message.componentNodeId)throw new Error("Route component questions through their master");
       operation={kind:"reply-question",messageId:message.nativeMessageId,body:String(data.body??"")};break;
     }
     default:throw new Error("Action has no native execution operation");

@@ -674,10 +674,12 @@ function BoardFlow({board,selectedId,onSelect,onEdit}:{board:BoardSnapshot;selec
     setNodes(previous=>board.nodes.filter(node=>!node.removed).map((node,index)=>{
       const retained=previous.find(item=>item.id===node.id);
       const attempt=board.attempts.filter(attempt=>attempt.nodeId===node.id && attempt.nodeRevision===node.revision).at(-1);
-      const observed=attempt?.nativeStatus;
+      const component=board.components[node.id];
+      const resultCurrent=component?.result?.nodeRevision===node.revision && component.result.gateDigest===component.gateDigest;
+      const observed=node.collaborate?(resultCurrent?"completed":component?.launches.some(launch=>['claimed','ready','unknown'].includes(launch.phase))?"dispatched":"pending"):attempt?.nativeStatus;
       const status:TaskStatus=node.kind==="run"?(board.specApproval?"completed":"pending"):observed && Object.hasOwn(STATUS_META,observed)?observed as TaskStatus:"pending";
       return {...retained,id:node.id,type:"task",position:dragged.current.get(node.id)??(dragging.current===node.id && retained?retained.position:node.position),
-        ariaLabel:`${node.kind}: ${node.title}`,deletable:node.kind==="task",data:{label:node.title,status,kind:node.kind,statusLabel:node.kind==="run"?(board.specApproval?"Spec approved":"Spec draft"):node.kind==="preview"?(board.preview?.current?"Ready to review":"Out of date"):undefined,selected:selectedId===node.id,dir:"LR",index,tilt:0,pop:false}};
+        ariaLabel:`${node.kind}: ${node.title}`,deletable:node.kind==="task",data:{label:node.title,status,kind:node.kind,statusLabel:node.kind==="run"?(board.specApproval?"Spec approved":"Spec draft"):node.kind==="preview"?(board.preview?.current?"Ready to review":"Out of date"):node.collaborate?(resultCurrent?"Selected result":component?.phase??"Awaiting gate"):undefined,selected:selectedId===node.id,dir:"LR",index,tilt:0,pop:false}};
     }));
     setEdges(previous=>board.edges.map(edge=>({...previous.find(item=>item.id===edge.id),...edge,type:"pencil"})));
   },[board,selectedId,setNodes,setEdges]);

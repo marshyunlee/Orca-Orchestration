@@ -1,3 +1,5 @@
+import { componentActionKinds } from "./componentPrompt.js";
+import { hasComponentWork } from "./componentActivity.js";
 import { createCollaborateRouter } from "./collaborateRoutes.js";
 import { validateComponentBinding } from "../../shared/collaborate.js";
 import {observationErrors,discussionStatuses} from "./nativeObservation.js";
@@ -49,9 +51,10 @@ export function applyBoardEdit(board: BoardSnapshot, operation: BoardEdit): Boar
       const assignment=operation.assignment;
       if (assignment?.kind === "member" && !board.members.some(member=>member.identity===assignment.identity)) throw new Error("Assigned session is not a member");
       if (JSON.stringify([target!.title,target!.content,target!.assignment,target!.collaborate]) === JSON.stringify([operation.title,operation.content,operation.assignment,operation.collaborate])) return board;
+      if(hasComponentWork(board,target!.id) && JSON.stringify(target!.collaborate)!==JSON.stringify(operation.collaborate))throw new Error("Settle component work before changing its execution binding");
       target!.title=operation.title; target!.content=operation.content; target!.assignment=operation.assignment; target!.collaborate=operation.collaborate; target!.revision++;
       if (target!.kind === "run") board.specApproval=null;
-      if (board.attempts.some(attempt=>attempt.nodeId===target!.id && hasActiveWriter(attempt))) {
+      if (hasComponentWork(board,target!.id) || board.attempts.some(attempt=>attempt.nodeId===target!.id && hasActiveWriter(attempt))) {
         board.pausedNodeIds=[...new Set([...board.pausedNodeIds,...findDownstream(target!.id,board.edges)])];
       }
       return board;
@@ -66,7 +69,7 @@ export function applyBoardEdit(board: BoardSnapshot, operation: BoardEdit): Boar
     }
     case "remove-node":
       if (target!.kind!=="task") throw new Error("Only task nodes can be removed");
-      if (board.attempts.some(attempt=>attempt.nodeId===target!.id && hasActiveWriter(attempt))) throw new Error("Stop active work before removing this task");
+      if (hasComponentWork(board,target!.id) || board.attempts.some(attempt=>attempt.nodeId===target!.id && hasActiveWriter(attempt))) throw new Error("Stop active work before removing this task");
       board.pausedNodeIds=[...new Set([...board.pausedNodeIds,...findDownstream(target!.id,board.edges)])];
       target!.removed=true;
       board.edges=board.edges.filter(edge=>edge.source!==target!.id && edge.target!==target!.id); return board;
@@ -74,7 +77,7 @@ export function applyBoardEdit(board: BoardSnapshot, operation: BoardEdit): Boar
       validateMembers(operation.members);
       if (!operation.members.some(member=>member.identity===operation.coordinatorIdentity)) throw new Error("Coordinator must be a member");
       const changed=board.members.filter(member=>!operation.members.some(candidate=>candidate.identity===member.identity && candidate.terminalHandle===member.terminalHandle && candidate.incarnationId===member.incarnationId));
-      if (board.attempts.some(attempt=>changed.some(member=>member.terminalHandle===attempt.assigneeHandle) && hasActiveWriter(attempt))) throw new Error("Settle outstanding work before removing or rebinding its member");
+      if (changed.some(member=>board.nodes.some(node=>node.collaborate?.masterIdentity===member.identity && hasComponentWork(board,node.id))) || board.attempts.some(attempt=>changed.some(member=>member.terminalHandle===attempt.assigneeHandle) && hasActiveWriter(attempt))) throw new Error("Settle outstanding work before removing or rebinding its member");
       if (board.discussionGroupId) throw new Error("Membership must be reconciled by the group coordinator");
       board.members=operation.members;board.coordinatorIdentity=operation.coordinatorIdentity;return board;
     }
@@ -121,14 +124,14 @@ export function createBoardRouter(store: BoardStore, token: string): Router {
       const {baseRevision,actionId,operation}=request.body;
       if(isRecord(operation) && operation.kind==="new-delivery"){
         const current=await store.read(String(request.params.id));
-        if(current.attempts.some(hasActiveWriter) || current.actions.some(action=>["claimed","unknown"].includes(action.phase)))throw new Error("Reconcile active work before starting a new increment");
+        if(current.nodes.some(node=>hasComponentWork(current,node.id)) || current.attempts.some(hasActiveWriter) || current.actions.some(action=>["claimed","unknown"].includes(action.phase)))throw new Error("Reconcile active work before starting a new increment");
         const path=await store.artifact(current.id,`delivery-${randomUUID()}`,JSON.stringify(current));
         response.json(await store.update(current.id,baseRevision as number,actionId as string,board=>{
           board.history.push({deliveryId:board.deliveryId,snapshotPath:path});board.deliveryId=`delivery_${randomUUID()}`;
           board.nodes=board.nodes.filter(node=>node.kind==="run");board.edges=[];board.attempts=[];board.components={};board.actions=[];board.preview=null;board.pausedNodeIds=[];board.pauseNewStarts=true;board.acceptedGraphDigest=null;board.acceptedNodeDigests={};board.implementationRunId=null;return board;
         }));return;
       }
-      if (isRecord(operation) && ["discuss","generate-tasks","review-graph","answer-question","start","resume","guidance","stop-rerun","reconcile"].includes(String(operation.kind))) {
+      if (isRecord(operation) && [...componentActionKinds,"discuss","generate-tasks","review-graph","answer-question","start","resume","guidance","stop-rerun","reconcile"].includes(String(operation.kind))) {
         const saved=await coordinator.queue(String(request.params.id),baseRevision as number,actionId as string,String(operation.kind),String(operation.body??""),operation);
         response.json(saved);
         void coordinator.deliver(saved.id,actionId as string).catch(()=>{});

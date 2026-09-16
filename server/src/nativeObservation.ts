@@ -35,3 +35,15 @@ export async function refreshNativeBoard(store:BoardStore,boardId:string, native
   return board;
  });
 }
+
+export async function refreshComponentQuestions(store:BoardStore,boardId:string,native={runOrca}):Promise<void>{
+ const before=await store.read(boardId);
+ const questions:BoardSnapshot["messages"]=[];
+ for(const [nodeId,state] of Object.entries(before.components)){
+  const master=before.members.find(member=>member.identity===state.masterIdentity);
+  if(!master)continue;
+  const envelope=await native.runOrca<{messages:{id:string;body:string;type:string;from_handle:string;created_at:string}[]}>(["orchestration","check","--peek","--types","question","--terminal",master.terminalHandle,"--run",state.runId]);
+  for(const message of envelope.messages??[])if(message.type==="question" && !before.messages.some(existing=>existing.nativeMessageId===message.id) && state.tasks.some(task=>task.dispatchId && `dispatch:${task.dispatchId}`===message.from_handle))questions.push({id:randomUUID(),author:message.from_handle,body:message.body,createdAt:message.created_at,nativeMessageId:message.id,componentNodeId:nodeId,answered:false});
+ }
+ if(questions.length)await store.update(boardId,before.revision,`component-questions-${randomUUID()}`,board=>{board.messages.push(...questions);return board;});
+}

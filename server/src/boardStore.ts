@@ -121,8 +121,11 @@ export async function createBoardStore(root: string): Promise<BoardStore> {
     },
   };
   for(const board of await store.list()){
+    const interrupted=Object.values(board.components).flatMap(state=>state.launches.filter(launch=>launch.phase==='claimed'));
+    if(interrupted.length)await store.update(board.id,board.revision,`component-recover-${randomUUID()}`,current=>{for(const state of Object.values(current.components))for(const launch of state.launches)if(launch.phase==='claimed')launch.phase='unknown';return current;});
+
     const uncertain=board.actions.filter(action=>isRecord(action.payload) && ((action.phase==="queued" && action.payload.delivery==="sending") || (action.phase==="claimed" && (action.payload.operationToken || action.payload.effectToken || action.payload.membershipToken || action.kind==="apply-files"))));
-    if(uncertain.length)await store.update(board.id,board.revision,`recover-${randomUUID()}`,current=>{for(const action of current.actions)if(uncertain.some(item=>item.id===action.id)){action.phase="unknown";action.error="Server restarted with an unfinished effect; reconcile its receipt before retrying";}return current;});
+    if(uncertain.length)await store.update(board.id,(await store.read(board.id)).revision,`recover-${randomUUID()}`,current=>{for(const action of current.actions)if(uncertain.some(item=>item.id===action.id)){action.phase="unknown";action.error="Server restarted with an unfinished effect; reconcile its receipt before retrying";}return current;});
   }
   return store;
 }

@@ -1,3 +1,4 @@
+import {hasComponentWork} from "./componentActivity.js";
 import {createHash,randomUUID} from "node:crypto";
 import type {BoardStore} from "./boardStore.js";
 import {isRecord,validateMembers,type MemberRef} from "../../shared/board.js";
@@ -12,6 +13,7 @@ export function createMembershipActions(store:BoardStore, verify=verifyGroupMemb
   if(action.payload.membershipToken)throw new Error("Membership change already admitted; inspect the shared group before retrying");
   const members=await Promise.all(desired.members.map(verify));
   const removed=board.members.filter(member=>!members.some(candidate=>candidate.identity===member.identity && candidate.incarnationId===member.incarnationId && candidate.terminalHandle===member.terminalHandle));
+  if(removed.some(member=>board.nodes.some(node=>node.collaborate?.masterIdentity===member.identity && hasComponentWork(board,node.id))))throw new Error("Settle component work before removing or rebinding its master");
   if(board.attempts.some(attempt=>hasActiveWriter(attempt) && (desired.coordinatorIdentity!==board.coordinatorIdentity || removed.some(member=>member.terminalHandle===attempt.assigneeHandle))))throw new Error("Settle outstanding work before this membership change");
   if(desired.coordinatorIdentity!==board.coordinatorIdentity && board.actions.some(other=>other.id!==actionId && ["claimed","unknown"].includes(other.phase)))throw new Error("Reconcile outstanding control actions before coordinator handover");
   const token=randomUUID();

@@ -32,6 +32,7 @@ export interface ComponentTask {
   taskId: string; kind: string; candidateId: string | null;
   dispatchId: string | null; terminalHandle: string | null;
   state: string; reportPath: string | null; briefPath: string | null;
+  briefArtifact?: string; reportArtifact?: string;
 }
 export interface ComponentState {
   masterIdentity: string; manifestPath: string; manifestDigest: string;
@@ -53,9 +54,14 @@ export interface ComponentLaunch {
 }
 export interface DependencyEvidence {
   nodeId: string; kind: 'direct' | 'component'; evidenceId: string; digest: string;
-  taskId?: string; runId?: string;
+  taskId?: string; runId?: string; artifactPath?: string;
 }
 export interface ComponentResult {
   id: string; nodeRevision: number; gateDigest: string; candidateId: string;
   snapshotDigest: string; artifactPath: string; digest: string;
+}
+
+export interface ComponentResultRequest {
+  identity: string; nodeRevision: number;
+  selectionPath: string; candidateStatePath: string; gateResultPath: string;
 }

@@ -1,4 +1,4 @@
-import type { ComponentBinding, ComponentState } from "./collaborate.js";
+import type { ComponentBinding, ComponentState, DependencyEvidence } from "./collaborate.js";
 export type AgentSource = "codex" | "claude" | "cursor" | "other";
 export type NodeKind = "run" | "task" | "preview";
 export interface MemberRef {
@@ -21,7 +21,7 @@ export interface AttemptRef {
   taskId: string; dispatchId: string; assigneeHandle: string | null;
   ownsProcess: boolean; nativeStatus: string; workspacePath: string;
   promptPath: string; resultPath: string | null; guidancePaths: string[];
-  dependencyAttemptIds: string[]; stopped: boolean; acceptedForRevision?: number;
+  dependencyAttemptIds: string[]; dependencyEvidence?: DependencyEvidence[]; stopped: boolean; acceptedForRevision?: number;
 }
 export interface PreviewRef {
   nodeId: string; specDigest: string; graphDigest: string;
@@ -35,7 +35,7 @@ export interface ActionRecord {
   receiptPath: string | null; error: string | null;
   payload: unknown;
 }
-export interface BoardMessage { id: string; author: string; body: string; createdAt: string; nativeMessageId?: string; answered?: boolean }
+export interface BoardMessage { id: string; author: string; body: string; createdAt: string; nativeMessageId?: string; componentNodeId?: string; answered?: boolean }
 export interface BoardSnapshot {
   version: 1; id: string; title: string; revision: number; deliveryId: string;
   members: MemberRef[]; coordinatorIdentity: string;
@@ -52,6 +52,7 @@ export interface BoardSnapshot {
 }
 export interface FileEdit { path: string; baseDigest: string | null; content: string | null }
 export type BoardEdit =
+  | { kind: "component-start" | "component-guidance" | "component-stop" | "component-reconcile" | "component-question"; nodeId: string; body: string; messageId?: string }
   | { kind: "new-delivery" }
   | { kind: "reconcile"; targetActionId: string }
   | { kind: "accept-result"; nodeId: string; attemptId: string }

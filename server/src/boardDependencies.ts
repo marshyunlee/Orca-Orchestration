@@ -9,11 +9,11 @@ export function resolveBoardDependencies(board: BoardSnapshot, nodeId: string): 
     if(predecessor.kind==='run')return [];
     if(predecessor.collaborate){
       const result=board.components[predecessor.id]?.result;
-      if(!result || result.nodeRevision!==predecessor.revision)throw new Error(`Unresolved predecessor ${predecessor.title}`);
-      return [{nodeId:predecessor.id,kind:'component' as const,evidenceId:result.id,digest:result.digest}];
+      if(!result || result.nodeRevision!==predecessor.revision || result.gateDigest!==board.components[predecessor.id].gateDigest)throw new Error(`Unresolved predecessor ${predecessor.title}`);
+      return [{nodeId:predecessor.id,kind:'component' as const,evidenceId:result.id,digest:result.digest,artifactPath:result.artifactPath}];
     }
     const attempt=board.attempts.filter(attempt=>attempt.nodeId===predecessor.id && (attempt.nodeRevision===predecessor.revision || attempt.acceptedForRevision===predecessor.revision) && attempt.nativeStatus==='completed').at(-1);
     if(!attempt)throw new Error(`Unresolved predecessor ${predecessor.title}`);
-    return [{nodeId:predecessor.id,kind:'direct' as const,evidenceId:attempt.id,digest:digestValue({id:attempt.id,resultPath:attempt.resultPath}),taskId:attempt.taskId,runId:attempt.runId}];
+    return [{nodeId:predecessor.id,kind:'direct' as const,evidenceId:attempt.id,digest:digestValue({id:attempt.id,resultPath:attempt.resultPath}),taskId:attempt.taskId,runId:attempt.runId,...(attempt.resultPath?{artifactPath:attempt.resultPath}:{})}];
   });
 }

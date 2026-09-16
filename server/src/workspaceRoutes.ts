@@ -1,3 +1,4 @@
+import { hasComponentWork } from "./componentActivity.js";
 import {Router} from "express";
 import {randomUUID} from "node:crypto";
 import {join} from "node:path";
@@ -12,6 +13,7 @@ function taskWorkspace(board:BoardSnapshot,nodeId:string):string{
  const node=board.nodes.find(node=>node.id===nodeId && node.kind==="task");if(!node)throw new Error("Task not found");
  const attempt=board.attempts.filter(attempt=>attempt.nodeId===nodeId).at(-1);
  if(attempt)return attempt.workspacePath;
+ if(node.collaborate){const master=board.members.find(member=>member.identity===node.collaborate!.masterIdentity);if(master)return master.workspacePath;}
  if(node.assignment?.kind==="new-worker")return node.assignment.workspacePath;
  const assignment=node.assignment;
  if(assignment?.kind==="member"){
@@ -48,7 +50,7 @@ export function createWorkspaceRouter(store:BoardStore):Router{
    workspace=workspaceKey(taskWorkspace(board,draft.nodeId));
    if(workspace!==workspaceKey(staged.workspace))throw new Error("Task workspace changed; reopen files before applying");
    assertWorkspaceAvailable(workspace);applying.add(workspace);acquired=true;
-   for(const current of await store.list())if(current.attempts.some(attempt=>workspaceKey(attempt.workspacePath)===workspace && hasActiveWriter(attempt)))throw new Error("An agent is writing this workspace. Send the patch as guidance or stop its attempt before Apply");
+   for(const current of await store.list())if(current.nodes.some(node=>node.collaborate && current.members.some(member=>member.identity===node.collaborate!.masterIdentity && workspaceKey(member.workspacePath)===workspace) && hasComponentWork(current,node.id)) || current.attempts.some(attempt=>workspaceKey(attempt.workspacePath)===workspace && hasActiveWriter(attempt)))throw new Error("An agent is writing this workspace. Send the patch as guidance or stop its attempt before Apply");
    const actionId=request.body.actionId;
    const journalName=`apply-${actionId}`;
    const reserved=await store.update(board.id,request.body.baseRevision,actionId,current=>{current.actions.push({id:actionId,kind:"apply-files",baseRevision:current.revision,phase:"claimed",actor:"human",nodeId:draft.nodeId,requestId:null,receiptPath:journalName,error:null,payload:{draftId:draft.id,workspace}});return current;});

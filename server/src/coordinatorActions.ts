@@ -1,3 +1,6 @@
+import { componentActionKinds, componentActionPrompt } from "./componentPrompt.js";
+import { resolveBoardDependencies } from "./boardDependencies.js";
+import { hasComponentWork } from "./componentActivity.js";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { BoardStore } from "./boardStore.js";
@@ -27,9 +30,19 @@ export function createCoordinatorActions(store:BoardStore,port:CoordinatorPort=c
   }
   return {
     async queue(boardId:string,baseRevision:number,actionId:string,kind:string,body:string,payload:unknown=null):Promise<BoardSnapshot>{
-      if(!["discuss","generate-tasks","review-graph","answer-question","members","start","resume","guidance","stop-rerun","reconcile"].includes(kind) || typeof body!=="string")throw new Error("Unsupported coordinator action");
+      if(![...componentActionKinds,"discuss","generate-tasks","review-graph","answer-question","members","start","resume","guidance","stop-rerun","reconcile"].includes(kind) || typeof body!=="string")throw new Error("Unsupported coordinator action");
       return store.update(boardId,baseRevision,actionId,board=>{
         if(!board.coordinatorIdentity || !board.members.some(member=>member.identity===board.coordinatorIdentity))throw new Error("Select the group coordinator first");
+        if(componentActionKinds.includes(kind)){
+          const node=isRecord(payload)?board.nodes.find(node=>node.id===payload.nodeId && !node.removed):null;
+          if(!node?.collaborate || !board.members.some(member=>member.identity===node.collaborate!.masterIdentity))throw new Error("Component master required");
+          if(kind==="component-question" && (!isRecord(payload) || !board.messages.some(message=>message.componentNodeId===node.id && message.nativeMessageId===payload.messageId && !message.answered)))throw new Error("Pending question from this component required");
+          if(kind==="component-start"){
+            if(board.pauseNewStarts || board.pausedNodeIds.includes(node.id))throw new Error("Component starts are paused");
+            if(!board.specApproval || board.specApproval.digest!==digestSpec(board) || board.acceptedNodeDigests[node.id]!==digestNodeInput(board,node.id))throw new Error("Approve the current component through Preview and Start");
+            resolveBoardDependencies(board,node.id);
+          }
+        }
         if(kind==="discuss" && board.members.length<2)throw new Error("Select at least two group sessions for discussion");
         if(kind==="generate-tasks" && (!board.specApproval || board.specApproval.digest!==digestSpec(board)))throw new Error("Approve the current specification first");
         if(kind==="start" || kind==="resume"){
@@ -47,10 +60,14 @@ export function createCoordinatorActions(store:BoardStore,port:CoordinatorPort=c
       try {
         const board=await store.read(boardId),action=board.actions.find(action=>action.id===actionId);
         if(!action || action.phase!=="queued" || !isRecord(action.payload) || action.payload.delivery!=="pending")return;
-        const member=board.members.find(member=>member.identity===board.coordinatorIdentity)!;
+        const component=componentActionKinds.includes(action.kind)?board.nodes.find(node=>node.id===action.nodeId && !node.removed):undefined;
+        if(componentActionKinds.includes(action.kind) && !component?.collaborate)throw new Error("Component binding unavailable");
+        if(component && action.kind==="component-start" && (board.pauseNewStarts || board.pausedNodeIds.includes(component.id) || board.actions.some(other=>other.id!==action.id && other.nodeId===component.id && other.kind==="component-start" && other.phase==="claimed")))return;
+        const recipient=component?.collaborate?.masterIdentity??board.coordinatorIdentity;
+        const member=board.members.find(member=>member.identity===recipient)!;
         await port.verify(member);
         const command=process.env.ORCA_BOARD_CLI ?? "boardctl";
-        const prompt=[
+        const prompt=component?componentActionPrompt(boardId,component,action,command,process.env.ORCA_BOARD_URL??`http://127.0.0.1:${process.env.PORT??8787}`):[
           `Orca group board request: ${action.kind}. Board ${boardId}; action ${actionId}.`,
           `Run boardctl from this coordinator session. Inspect the board, claim this action once, then read the returned revision before publishing.`,
           `CLI: ${command}. Server: ${process.env.ORCA_BOARD_URL??`http://127.0.0.1:${process.env.PORT??8787}`}. Use its --help for typed commands.`,
@@ -79,13 +96,25 @@ export function createCoordinatorActions(store:BoardStore,port:CoordinatorPort=c
     },
     async claim(boardId:string,actionId:string,identity:string):Promise<BoardSnapshot>{
       const board=await store.read(boardId);
-      if(identity!==board.coordinatorIdentity)throw new Error("Only the selected coordinator may claim this action");
+      const selected=board.actions.find(action=>action.id===actionId);
+      const owner=selected && componentActionKinds.includes(selected.kind)?board.nodes.find(node=>node.id===selected.nodeId && !node.removed)?.collaborate?.masterIdentity:board.coordinatorIdentity;
+      if(identity!==owner)throw new Error("Only this action's selected coordinator or component master may claim it");
       await port.verify(board.members.find(member=>member.identity===identity)!);
       return store.update(boardId,board.revision,`${actionId}-claim`,current=>{
         const action=current.actions.find(action=>action.id===actionId);
         if(!action || (action.phase!=="queued" && !(action.phase==="unknown" && isRecord(action.payload) && !action.payload.operationToken && !action.payload.effectToken && !action.payload.membershipToken)))throw new Error("Action is not available to claim; inspect its receipt");
         action.phase="claimed";action.actor=identity;return current;
       });
+    },
+    async finishComponent(boardId:string,nodeId:string,actionId:string,identity:string,evidence:string):Promise<BoardSnapshot>{
+      const board=await store.read(boardId),node=board.nodes.find(node=>node.id===nodeId && !node.removed),action=board.actions.find(action=>action.id===actionId);
+      if(!node?.collaborate || node.collaborate.masterIdentity!==identity || !action || !componentActionKinds.includes(action.kind) || action.nodeId!==nodeId || action.actor!==identity || action.phase!=="claimed")throw new Error("This component master must claim the action first");
+      if(!evidence.trim())throw new Error("Action outcome evidence required");
+      await port.verify(board.members.find(member=>member.identity===identity)!);
+      const receiptPath=await store.artifact(boardId,`component-action-${randomUUID()}`,JSON.stringify({nodeId,actionId,identity,evidence,nodeRevision:node.revision}));
+      return store.update(boardId,board.revision,`${actionId}-finished`,current=>{const selected=current.actions.find(item=>item.id===actionId)!;selected.phase="applied";selected.receiptPath=receiptPath;
+        if(selected.kind==="component-question" && isRecord(selected.payload) && isRecord(selected.payload.data)){const message=current.messages.find(message=>message.componentNodeId===nodeId && message.nativeMessageId===(selected.payload as {data:{messageId:unknown}}).data.messageId);if(message)message.answered=true;}
+        return current;});
     },
     async publish(boardId:string,baseRevision:number,actionId:string,identity:string,proposal:CoordinatorProposal):Promise<BoardSnapshot>{
       if(!isRecord(proposal))throw new Error("Proposal required");
@@ -115,7 +144,7 @@ export function createCoordinatorActions(store:BoardStore,port:CoordinatorPort=c
               for(const old of board.nodes.filter(node=>node.kind==="task")){
                 const replacement=proposal.nodes.find(node=>node.id===old.id);
                 const changed=!replacement || JSON.stringify([replacement.title,replacement.content,replacement.assignment,replacement.collaborate,proposal.edges.filter(edge=>edge.target===old.id).map(edge=>edge.source).sort()])!==JSON.stringify([old.title,old.content,old.assignment,old.collaborate,board.edges.filter(edge=>edge.target===old.id).map(edge=>edge.source).sort()]);
-                if(board.attempts.some(attempt=>attempt.nodeId===old.id && ["admitted","ready","dispatched","unknown"].includes(attempt.nativeStatus)) && changed)throw new Error("Reconcile active task edits through intervention controls");
+                if((hasComponentWork(board,old.id) || board.attempts.some(attempt=>attempt.nodeId===old.id && ["admitted","ready","dispatched","unknown"].includes(attempt.nativeStatus))) && changed)throw new Error("Reconcile active task edits through intervention controls");
               }
               board.nodes=[...board.nodes.filter(node=>node.kind!=="task" || !newIds.has(node.id)).map(node=>node.kind==="task"?{...node,removed:true}:node),...proposal.nodes.map(node=>({...node,removed:false,revision:(()=>{const old=board.nodes.find(old=>old.id===node.id);return old && JSON.stringify([old.title,old.content,old.assignment,old.collaborate])===JSON.stringify([node.title,node.content,node.assignment,node.collaborate])?old.revision:(old?.revision??0)+1;})()}))];
               board.edges=proposal.edges;validateGraph(board.nodes,board.edges);break;

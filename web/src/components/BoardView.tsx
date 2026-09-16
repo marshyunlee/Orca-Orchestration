@@ -1,3 +1,5 @@
+import type { ComponentBinding } from "../../../shared/collaborate.js";
+import { CollaborateDetails } from "./CollaborateDetails.js";
 import { useEffect, useReducer, useRef, useState } from "react";
 import type { BoardSnapshot, BoardEdit, NodeContent, Assignment } from "../../../shared/board.js";
 import { boardRequest,fetchBoardArtifact } from "../api.js";
@@ -60,13 +62,13 @@ export function BoardView({onHistory}:{onHistory:()=>void}) {
     });
     editQueue.current=pending;return pending;
   }
-  function saveNode(title:string,content:NodeContent,assignment:Assignment|null) {
+  function saveNode(title:string,content:NodeContent,assignment:Assignment|null,collaborate?:ComponentBinding) {
     if(!board || !node)return;
     const prefix=`${board.id}/${node.id}`;
     if(state.draftRevisions[prefix]!==undefined && state.draftRevisions[prefix]!==node.revision) {
       dispatch({type:"save-conflicted",boardId:board.id,error:"This node changed while you were editing. Your draft is preserved; compare the current revision before saving."});return;
     }
-    void edit({kind:"edit-node",nodeId:node.id,title,content,assignment,collaborate:node.collaborate},Object.fromEntries(Object.entries(state.drafts).filter(([key])=>key.startsWith(prefix+"/"))));
+    void edit({kind:"edit-node",nodeId:node.id,title,content,assignment,collaborate},Object.fromEntries(Object.entries(state.drafts).filter(([key])=>key.startsWith(prefix+"/"))));
   }
   async function createGroup() {
     setBusy(true);
@@ -76,7 +78,7 @@ export function BoardView({onHistory}:{onHistory:()=>void}) {
     }catch(error){setConnectionError(String(error));}finally{setBusy(false);}
   }
   return <main className="board-app">
-    {historical && <section className="delivery-history" role="dialog" aria-label="Past delivery"><button onClick={()=>setHistorical(null)}>Close history</button><h2>{historical.title} · past delivery</h2><p>Recorded revision {historical.revision}. Historical contents are read-only.</p>{historical.nodes.map(item=><details key={item.id}><summary>{item.kind} · {item.title}</summary><pre className="preserve-lines">{Object.entries(item.content).map(([key,value])=>`${key}:\n${value}`).join("\n\n")}</pre></details>)}<AttemptHistory boardId={historical.id} attempts={historical.attempts}/></section>}
+    {historical && <section className="delivery-history" role="dialog" aria-label="Past delivery"><button onClick={()=>setHistorical(null)}>Close history</button><h2>{historical.title} · past delivery</h2><p>Recorded revision {historical.revision}. Historical contents are read-only.</p>{historical.nodes.map(item=><details key={item.id}><summary>{item.kind} · {item.title}</summary><pre className="preserve-lines">{Object.entries(item.content).map(([key,value])=>`${key}:\n${value}`).join("\n\n")}</pre></details>)}{historical.nodes.filter(item=>item.collaborate).map(item=><CollaborateDetails key={item.id} board={historical} node={item} readOnly onEdit={()=>{}} onSnapshot={()=>{}}/>)}<AttemptHistory boardId={historical.id} attempts={historical.attempts}/></section>}
 
     <GroupTabs boards={Object.values(state.snapshotsById)} selectedId={state.selectedBoardId} onSelect={boardId=>dispatch({type:"select",boardId})} onCreate={()=>setNewGroup(true)} onHistory={onHistory}/>
     {newGroup && <form className="new-group" onSubmit={event=>{event.preventDefault();void createGroup();}}><label>Group name<input autoFocus value={title} onChange={event=>setTitle(event.target.value)}/></label><button disabled={busy || !title.trim()}>Create group</button><button type="button" onClick={()=>setNewGroup(false)}>Cancel</button></form>}
@@ -87,7 +89,7 @@ export function BoardView({onHistory}:{onHistory:()=>void}) {
       {board.observationError && <p role="alert" className="board-error">Group or native refresh failed; showing the last observed outcome. {board.observationError}</p>}
       {state.errors[board.id] && <p role="alert" className="board-error">{state.errors[board.id]}</p>}
       <details className="board-action-history"><summary>Actions · {board.actions.filter(action=>action.phase!=="applied").length} pending or needing attention</summary>{board.actions.map(action=><article key={action.id}><strong>{action.kind}</strong> · {action.phase}{action.requestId && <small> · {action.requestId}</small>}{action.error && <p role="alert">{action.error}</p>}{action.phase==="unknown" && <button onClick={()=>void edit({kind:"reconcile",targetActionId:action.id})}>Request reconciliation</button>}</article>)}</details><div className="board-workspace"><div className="board-canvas"><BoardCanvas key={board.id} board={board} selectedId={node?.id??null} onSelect={nodeId=>dispatch({type:"select-node",nodeId})} onEdit={operation=>void edit(operation)}/></div>
-        {node && <aside className="board-inspector">{node.kind==="preview"?<PreviewPanel board={board} node={node} onUpdate={()=>void edit({kind:"review-graph",body:""})}/>:<><TaskInspector implementation={node.kind==="task"?<ImplementationEditor key={`${board.id}/${node.id}`} board={board} node={node} onSnapshot={snapshot=>dispatch({type:"save-succeeded",boardId:board.id,snapshot,savedDrafts:{}})} onEdit={operation=>void edit(operation)}/>:undefined} board={board} node={node} drafts={state.drafts} onDraft={(section,value)=>dispatch({type:"edit-draft",boardId:board.id,nodeId:node.id,section,value})} onReconcile={()=>dispatch({type:"reconcile-draft",boardId:board.id,nodeId:node.id,revision:node.revision})} onSave={saveNode} onDiscard={()=>dispatch({type:"discard-drafts",boardId:board.id,nodeId:node.id})} error={state.errors[board.id]}/>{node.kind==="task" && <ExecutionControls board={board} node={node} onEdit={operation=>void edit(operation)}/>}
+        {node && <aside className="board-inspector">{node.kind==="preview"?<PreviewPanel board={board} node={node} onUpdate={()=>void edit({kind:"review-graph",body:""})}/>:<><TaskInspector implementation={node.kind==="task"?<ImplementationEditor key={`${board.id}/${node.id}`} board={board} node={node} onSnapshot={snapshot=>dispatch({type:"save-succeeded",boardId:board.id,snapshot,savedDrafts:{}})} onEdit={operation=>void edit(operation)}/>:undefined} board={board} node={node} drafts={state.drafts} onDraft={(section,value)=>dispatch({type:"edit-draft",boardId:board.id,nodeId:node.id,section,value})} onReconcile={()=>dispatch({type:"reconcile-draft",boardId:board.id,nodeId:node.id,revision:node.revision})} onSave={saveNode} onDiscard={()=>dispatch({type:"discard-drafts",boardId:board.id,nodeId:node.id})} error={state.errors[board.id]}/>{node.kind==="task" && (node.collaborate?<CollaborateDetails board={board} node={node} onEdit={operation=>void edit(operation)} onSnapshot={snapshot=>dispatch({type:"save-succeeded",boardId:board.id,snapshot,savedDrafts:{}})}/>:<ExecutionControls board={board} node={node} onEdit={operation=>void edit(operation)}/>)}
 {node.kind==="run" && <RunPanel key={board.id} board={board} request={state.drafts[`${board.id}/discussion/request`]??""} onRequest={value=>dispatch({type:"edit-draft",boardId:board.id,nodeId:"discussion",section:"request",value})} onEdit={operation=>void edit(operation)}/>}</>}</aside>}
       </div></>:<section className="board-empty"><h1>Your group workspace</h1><p>Create a group to begin with an editable Run, then develop its specification and task graph.</p><button onClick={()=>setNewGroup(true)}>+ New group</button></section>}
   </main>;

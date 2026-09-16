@@ -75,3 +75,33 @@ test('each child launch is ordered against board pause and stale approvals',asyn
   assert.equal(board.implementationRunId,null);
  }finally{await store.close();await rm(root,{recursive:true,force:true});}
 });
+
+test('selected result requires applied candidate and matching gate and opposite-family review evidence',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'component-result-')),store=await createBoardStore(root);
+ const manifest={orca_run_id:'run_component',run_id:'collaborate-run',feature_worktree:'/feature',baseline_sha:'baseline',gate_revision:'overlay',gate_commands:['test'],human_checks:[],selection_policy:['diff_lines'],delivery_scope:'feature',feature_close_requested:false,repair_policy:{max_rounds:2},tasks:{review:{kind:'review',candidate_id:'impl-opus',dispatch_id:'review-dispatch',report:'/run/review.json'}},lifecycle:{dispatches:{'review-dispatch':{state:'released'}}}};
+ const documents:Record<string,Record<string,unknown>>={
+  '/run/selection.json':{run_id:'collaborate-run',baseline_sha:'baseline',gate_revision:'overlay',accepted:'impl-opus',impl:[{candidate_id:'impl-opus',family:'claude',candidate_digest:'snapshot',gate:'pass'}],reviews:[{reviewed_candidate:'impl-opus',reviewed_digest:'snapshot',reviewer_family:'gpt',task_id:'review',dispatch_id:'review-dispatch',report_path:'/run/review.json'}]},
+  '/bulk/state.json':{candidate_id:'impl-opus',baseline_sha:'baseline',phase:'ADJUDICATED',snapshots:[{sequence:1,digest:'snapshot'}],aggregates:[{sequence:1,source_snapshot:1,aggregate_digest:'aggregate',conflicts:[]}],applications:[{aggregate:1,after_digest:'aggregate',expected_after_digest:'aggregate'}],adjudication:{decision:'accepted'}},
+  '/bulk/gate.json':{candidate_id:'impl-opus',gate_revision:'overlay',source:{kind:'aggregate',digest:'aggregate'},passed:true,drifted:false,commands:[{command:'test',exit_code:0}]},
+  '/run/review.json':{task_id:'review',dispatch_id:'review-dispatch',outcome:'succeeded'},
+ };
+ const ports={readManifest:async(path:string)=>({path,value:structuredClone(manifest)}),readEvidence:async(path:string)=>({path,value:structuredClone(documents[path])}),verifySelection:async()=>{},verifyMaster:async(member:MemberRef)=>member,verifyFeature:async()=>{},verifyRun:async()=>{}};
+ try{
+  let board=await store.create({title:'Delivery',members:[master],coordinatorIdentity:master.identity},'create');
+  board=await store.update(board.id,board.revision,'setup',current=>{const node=createBoardNode('component','task','Component');node.collaborate={masterIdentity:master.identity,manifestPath:'/manifest.json'};current.nodes.push(node);return current;});
+  const service=createCollaborateComponents(store,ports);
+  board=await service.refresh(board.id,'component',master.identity,'bind');
+  await service.approve(board.id,'component',board.components.component.gateDigest,{kind:'ui',reference:'click',response:'Approve'},'approve');
+  const proposal={identity:master.identity,nodeRevision:1,selectionPath:'/run/selection.json',candidateStatePath:'/bulk/state.json',gateResultPath:'/bulk/gate.json'};
+  documents['/bulk/gate.json'].passed=false;
+  await assert.rejects(service.publishResult(board.id,'component',proposal,'result'),/gate/);
+  documents['/bulk/gate.json'].passed=true;
+  documents['/run/review.json'].outcome='failed';
+  await assert.rejects(service.publishResult(board.id,'component',proposal,'result'),/review/);
+  documents['/run/review.json'].outcome='succeeded';
+  board=await service.publishResult(board.id,'component',proposal,'result');
+  assert.equal(board.components.component.result?.snapshotDigest,'snapshot');
+  assert.equal(board.components.component.result?.candidateId,'impl-opus');
+  assert.equal(board.attempts.length,0);
+ }finally{await store.close();await rm(root,{recursive:true,force:true});}
+});
