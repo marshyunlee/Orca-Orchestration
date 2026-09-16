@@ -67,6 +67,10 @@ run(join(root, "node_modules", ".bin", "esbuild"), [
 
 // 3. Assemble the package tree ---------------------------------------------
 mkdirSync(join(out, "bin"), { recursive: true });
+run(join(root, "node_modules", ".bin", "esbuild"), [
+  "server/src/boardCli.ts", "--bundle", "--platform=node", "--target=node20", "--format=esm",
+  `--outfile=${join(out, "bin", "boardctl.mjs")}`,
+]);
 writeFileSync(
   join(out, "bin", "orca-dag.mjs"),
   `#!/usr/bin/env node\n// Thin launcher: the real server lives two levels down so its\n// "../../web/dist" asset lookup lands inside this package.\nimport "../dist/server/index.mjs";\n`,
@@ -91,7 +95,7 @@ writeFileSync(
       version,
       description: rootPkg.description,
       type: "module",
-      bin: { "orca-dag": "bin/orca-dag.mjs" },
+      bin: { "orca-dag": "bin/orca-dag.mjs", boardctl: "bin/boardctl.mjs" },
       files: ["bin", "dist", "web", "skill", "README.md", "README_zh.md", "LICENSE"],
       engines: { node: ">=20" },
       keywords: ["orca", "orchestration", "dag", "agents", "coordinator", "react-flow"],

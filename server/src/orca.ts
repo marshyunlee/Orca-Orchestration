@@ -3,6 +3,112 @@ import { promisify } from "node:util";
 
 const pExecFile = promisify(execFile);
 
+export interface CoordinatorCaller {
+  identity: string;
+  terminalHandle: string;
+  incarnationId: string;
+  hostId: string;
+}
+
+export type NativeOperation =
+  | { kind: "create-run"; objective: string }
+  | { kind: "create-task"; runId: string; title: string; spec: string; dependencies: string[] }
+  | { kind: "start-worker"; taskId: string; runId: string; assignment:
+      | { kind: "member"; terminalHandle: string; workspacePath: string }
+      | { kind: "new-worker"; agent: string; workspacePath: string; model?: string; effort?: string } }
+  | { kind: "send-guidance"; dispatchId: string; body: string }
+  | { kind: "stop-worker" | "retain-worker" | "release-worker"; dispatchId: string }
+  | { kind: "inspect-request"; requestId: string }
+  | { kind: "reply-question"; messageId: string; body: string };
+
+export interface NativeReceipt {
+  phase: "applied" | "failed" | "unknown";
+  requestId: string | null;
+  stage: string | null;
+  runId: string | null;
+  taskId: string | null;
+  dispatchId: string | null;
+  liveness: string | null;
+  raw: unknown;
+  error: string | null;
+}
+
+function buildNativeArguments(operation: NativeOperation, caller: CoordinatorCaller): string[] {
+  const from = ["--from", caller.terminalHandle];
+  let args: string[];
+  switch (operation.kind) {
+    case "create-run": args = ["run-create", "--objective", operation.objective, ...from]; break;
+    case "create-task": args = ["task-create", "--spec", operation.spec, "--task-title", operation.title, "--deps", JSON.stringify(operation.dependencies), "--run", operation.runId, ...from]; break;
+    case "start-worker": {
+      const assignment = operation.assignment;
+      if (assignment.kind === "member") {
+        if (assignment.terminalHandle === caller.terminalHandle) throw new Error("The coordinator needs an explicit handover before becoming a worker");
+        args = ["dispatch", "--task", operation.taskId, "--to", assignment.terminalHandle, "--run", operation.runId, "--inject", ...from];
+      } else {
+        args = ["worker-start", "--task", operation.taskId, "--worktree", `path:${assignment.workspacePath}`, "--agent", assignment.agent, "--run", operation.runId, ...from];
+        if (assignment.model) args.push("--model", assignment.model);
+        if (assignment.effort) args.push("--effort", assignment.effort);
+      }
+      break;
+    }
+    case "send-guidance": args = ["send", "--to", `dispatch:${operation.dispatchId}`, "--subject", "Board guidance", "--body", operation.body, ...from]; break;
+    case "stop-worker": args = ["worker-stop", "--dispatch", operation.dispatchId]; break;
+    case "retain-worker": args = ["worker-retain", "--dispatch", operation.dispatchId]; break;
+    case "release-worker": args = ["worker-release", "--dispatch", operation.dispatchId]; break;
+    case "inspect-request": args = ["request-show", "--request", operation.requestId]; break;
+    case "reply-question": args = ["reply", "--id", operation.messageId, "--body", operation.body, ...from]; break;
+    default: throw new Error("Unsupported native operation");
+  }
+  return ["orchestration", ...args, "--json"];
+}
+
+/** Called by boardctl inside the chosen coordinator, never by the web server. */
+export async function executeNativeOperation(
+  operation: NativeOperation,
+  caller: CoordinatorCaller,
+  options: { executable?: string; timeoutMs?: number } = {},
+): Promise<NativeReceipt> {
+  if (!caller.terminalHandle || process.env.ORCA_TERMINAL_HANDLE !== caller.terminalHandle) {
+    throw new Error("Native operations must run inside the selected coordinator process");
+  }
+  const executable = options.executable ?? process.env.ORCA_CLI_COMMAND ?? (process.env.ORCA_DEV_REPO_ROOT ? "orca-dev" : "orca");
+  const settings = { maxBuffer: 32 * 1024 * 1024, timeout: options.timeoutMs ?? 180_000 };
+  const inspected = await pExecFile(executable, ["terminal", "show", "--terminal", caller.terminalHandle, "--json"], settings);
+  const envelope = JSON.parse(inspected.stdout);
+  const terminal = envelope.result?.terminal;
+  if (!envelope.ok || !terminal || terminal.handle !== caller.terminalHandle ||
+      terminal.incarnationId !== caller.incarnationId || terminal.executionHostId !== caller.hostId ||
+      !terminal.connected || !terminal.writable || terminal.orphaned ||
+      terminal.agentIdentity !== caller.identity.split(":")[0]) {
+    throw new Error("Coordinator identity or incarnation changed; reconnect explicitly");
+  }
+  const args = buildNativeArguments(operation, caller);
+  let stdout = "";
+  let failure: string | null = null;
+  try {
+    stdout = (await pExecFile(executable, args, settings)).stdout;
+  } catch (error) {
+    const caught = error as { stdout?: string; message?: string };
+    stdout = caught.stdout ?? "";
+    failure = caught.message ?? String(error);
+  }
+  let raw: Record<string, any> | null = null;
+  try { raw = JSON.parse(stdout); } catch { /* A lost receipt leaves the effect unknown. */ }
+  const result = raw?.result ?? {};
+  const stringOrNull = (value: unknown): string | null => typeof value === "string" ? value : null;
+  return {
+    phase: raw?.ok === true ? "applied" : raw?.ok === false ? "failed" : "unknown",
+    requestId: stringOrNull(result.mutation?.requestId ?? result.requestId ?? result.request_id ?? raw?.error?.data?.requestId),
+    stage: stringOrNull(result.stage ?? result.failedStage),
+    runId: stringOrNull(result.runId ?? result.run?.id),
+    taskId: stringOrNull(result.taskId ?? result.task?.id),
+    dispatchId: stringOrNull(result.dispatchId ?? result.dispatch?.id),
+    liveness: stringOrNull(result.liveness ?? result.projection?.liveness?.status),
+    raw: raw ?? stdout,
+    error: raw?.ok === false ? String(raw.error?.message ?? failure ?? "Native operation failed") : failure,
+  };
+}
+
 /**
  * Read native Run/Task state with an explicit Run ID. Reads need no coordinator
  * binding; acquiring one would fence the conversation that owns the work.
