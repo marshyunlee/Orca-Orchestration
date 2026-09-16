@@ -1,3 +1,4 @@
+import { createCollaborateRouter } from "./collaborateRoutes.js";
 import { validateComponentBinding } from "../../shared/collaborate.js";
 import {observationErrors,discussionStatuses} from "./nativeObservation.js";
 import {createMembershipActions} from "./membershipActions.js";
@@ -110,6 +111,7 @@ export function createBoardRouter(store: BoardStore, token: string): Router {
   router.get("/:id",async (request,response)=>{try{const board=await store.read(request.params.id);response.json({...board,digests:{spec:digestSpec(board),graph:digestExecutableBoard(board)}});}catch(error){sendBoardError(response,error);}});
   router.use(requireToken(token));
   router.use("/:id/files",createWorkspaceRouter(store));
+  router.use("/:id/components",createCollaborateRouter(store));
   router.post("/",async (request,response)=>{
     try { response.json(await store.create(request.body,request.body.actionId)); } catch(error){sendBoardError(response,error);}
   });
@@ -123,7 +125,7 @@ export function createBoardRouter(store: BoardStore, token: string): Router {
         const path=await store.artifact(current.id,`delivery-${randomUUID()}`,JSON.stringify(current));
         response.json(await store.update(current.id,baseRevision as number,actionId as string,board=>{
           board.history.push({deliveryId:board.deliveryId,snapshotPath:path});board.deliveryId=`delivery_${randomUUID()}`;
-          board.nodes=board.nodes.filter(node=>node.kind==="run");board.edges=[];board.attempts=[];board.actions=[];board.preview=null;board.pausedNodeIds=[];board.pauseNewStarts=true;board.acceptedGraphDigest=null;board.acceptedNodeDigests={};board.implementationRunId=null;return board;
+          board.nodes=board.nodes.filter(node=>node.kind==="run");board.edges=[];board.attempts=[];board.components={};board.actions=[];board.preview=null;board.pausedNodeIds=[];board.pauseNewStarts=true;board.acceptedGraphDigest=null;board.acceptedNodeDigests={};board.implementationRunId=null;return board;
         }));return;
       }
       if (isRecord(operation) && ["discuss","generate-tasks","review-graph","answer-question","start","resume","guidance","stop-rerun","reconcile"].includes(String(operation.kind))) {

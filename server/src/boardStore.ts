@@ -57,6 +57,7 @@ export async function createBoardStore(root: string): Promise<BoardStore> {
     const value = JSON.parse(await readFile(path(id), "utf8")) as StoredBoard;
     if (value.snapshot?.version !== 1 || value.snapshot.id !== id) throw new Error("Unsupported board storage version");
     value.snapshot.acceptedNodeDigests ??= {};
+    value.snapshot.components ??= {};
     if(value.snapshot.preview)value.snapshot.preview.current=value.snapshot.preview.specDigest===digestSpec(value.snapshot) && value.snapshot.preview.graphDigest===digestExecutableBoard(value.snapshot);
     validateGraph(value.snapshot.nodes, value.snapshot.edges);
     return value;

@@ -45,6 +45,9 @@ async function main():Promise<void>{
   group-init                   Initialize and attach the shared group runtime
   reconcile --action <id>       Recover the exact recorded native operation
   execute-action --action <id>  Execute a claimed human action
+  component-refresh --node <id> --action <id>  Refresh the bound manifest from its master
+  component-approve --node <id> --digest <digest> --source-file <JSON> --action <id>
+                               Record an actual human response to the exact gate
   launch --node <id>            Admit and start one ready node from this coordinator
   attest-stop --attempt <id> --evidence <text>   Member confirmation after stopping all work
   native --caller-file <json> --operation-file <json>
@@ -90,6 +93,17 @@ Native operations run only inside the selected coordinator. Unknown receipts req
     const member=board.members.find(member=>member.terminalHandle===process.env.ORCA_TERMINAL_HANDLE);
     if(!member)throw new Error("Run stop acknowledgment from the assigned member session");
     console.log(JSON.stringify(await request(`/api/boards/${id}/member/stopped`,{identity:member.identity,attemptId:option("--attempt"),evidence:option("--evidence")})));return;
+  }
+  if(args[0]==="component-refresh" || args[0]==="component-approve"){
+    const role=resolveEntryRole(board,process.env.ORCA_TERMINAL_HANDLE??"");
+    const nodeId=option("--node");
+    const operation=args[0]==="component-refresh"?"refresh":"approve";
+    const data:Record<string,unknown>={identity:role.identity,actionId:option("--action")};
+    if(operation==="approve"){
+      data.digest=option("--digest");
+      data.source=JSON.parse(await readFile(option("--source-file"),"utf8"));
+    }
+    console.log(JSON.stringify(await request(`/api/boards/${id}/components/${nodeId}/${operation}`,data)));return;
   }
   const caller=await selectedCaller(board);
   const integrations=await request<{boardRoot:string;groupHelper:string|null;sessionResolver:string|null}>("/api/integrations");

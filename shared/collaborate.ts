@@ -14,3 +14,48 @@ export function validateComponentBinding(value: unknown): asserts value is Compo
     throw new Error('Component manifest requires an absolute path');
   }
 }
+
+export interface GatePackage {
+  baselineSha: string;
+  overlayDigest: string;
+  commands: string[];
+  setup: unknown;
+  humanChecks: string[];
+  selectionPolicy: string[];
+  deliveryScope: string;
+  featureCloseRequested: boolean;
+  repairPolicy: unknown;
+}
+export interface ApprovalSource { kind: 'ui' | 'chat'; reference: string; response: string }
+export interface GateApproval { digest: string; nodeRevision: number; deliveryId: string; source: ApprovalSource; recordedAt: string; artifactPath: string }
+export interface ComponentTask {
+  taskId: string; kind: string; candidateId: string | null;
+  dispatchId: string | null; terminalHandle: string | null;
+  state: string; reportPath: string | null; briefPath: string | null;
+}
+export interface ComponentState {
+  masterIdentity: string; manifestPath: string; manifestDigest: string;
+  runId: string; featureWorkspace: string; phase: string;
+  gate: GatePackage; gateDigest: string; approvals: GateApproval[];
+  tasks: ComponentTask[]; observedAt: string; launches: ComponentLaunch[]; result: ComponentResult | null;
+}
+
+export interface ComponentLaunchRequest {
+  identity: string; launchId: string; taskId: string; role: string;
+  candidateId: string | null; journalPath: string;
+}
+export interface ComponentLaunch {
+  request: ComponentLaunchRequest; requestDigest: string;
+  nodeRevision: number; gateDigest: string;
+  phase: 'prepared' | 'claimed' | 'ready' | 'failed' | 'unknown' | 'settled';
+  requestId: string | null; dispatchId: string | null; receiptPath: string | null;
+  dependencies: DependencyEvidence[];
+}
+export interface DependencyEvidence {
+  nodeId: string; kind: 'direct' | 'component'; evidenceId: string; digest: string;
+  taskId?: string; runId?: string;
+}
+export interface ComponentResult {
+  id: string; nodeRevision: number; gateDigest: string; candidateId: string;
+  snapshotDigest: string; artifactPath: string; digest: string;
+}

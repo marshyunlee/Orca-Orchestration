@@ -1,4 +1,4 @@
-import type { ComponentBinding } from "./collaborate.js";
+import type { ComponentBinding, ComponentState } from "./collaborate.js";
 export type AgentSource = "codex" | "claude" | "cursor" | "other";
 export type NodeKind = "run" | "task" | "preview";
 export interface MemberRef {
@@ -39,7 +39,7 @@ export interface BoardMessage { id: string; author: string; body: string; create
 export interface BoardSnapshot {
   version: 1; id: string; title: string; revision: number; deliveryId: string;
   members: MemberRef[]; coordinatorIdentity: string;
-  nodes: BoardNode[]; edges: BoardEdge[]; attempts: AttemptRef[];
+  nodes: BoardNode[]; edges: BoardEdge[]; attempts: AttemptRef[]; components: Record<string, ComponentState>;
   specApproval: { nodeRevision: number; digest: string } | null;
   preview: PreviewRef | null; pausedNodeIds: string[];
   pauseNewStarts: boolean; actions: ActionRecord[];
@@ -75,7 +75,7 @@ export function createBoardNode(id: string, kind: NodeKind, title: string): Boar
 }
 export function createBoardSnapshot(id: string, title: string, members: MemberRef[], coordinatorIdentity: string): BoardSnapshot {
   return { version: 1, id, title, revision: 1, deliveryId: `${id}-delivery-1`, members, coordinatorIdentity,
-    nodes: [createBoardNode(`${id}-run`, "run", "Run")], edges: [], attempts: [], specApproval: null,
+    nodes: [createBoardNode(`${id}-run`, "run", "Run")], edges: [], attempts: [], components: {}, specApproval: null,
     preview: null, pausedNodeIds: [], pauseNewStarts: true, actions: [], discussionGroupId: null,
     implementationRunId: null, messages: [], acceptedGraphDigest: null, acceptedNodeDigests: {}, history: [] };
 }
