@@ -1,3 +1,4 @@
+import {refreshImportedWork} from './importDiscovery.js';
 import {randomUUID} from "node:crypto";
 import type {BoardStore} from "./boardStore.js";
 import {callGroupHelper} from "./groupAdapter.js";
@@ -13,8 +14,11 @@ export async function refreshDiscussionStatus(board:BoardSnapshot):Promise<void>
 export const observationErrors=new Map<string,string>();
 
 export async function refreshNativeBoard(store:BoardStore,boardId:string, native={listTasks,runOrca}):Promise<void>{
+ const fetched=new Map<string,ReturnType<typeof listTasks>>();
+ const fetchTasks=(runId:string)=>{let tasks=fetched.get(runId);if(!tasks){tasks=native.listTasks(runId);fetched.set(runId,tasks);}return tasks;};
+ await refreshImportedWork(store,boardId,{listTasks:fetchTasks});
  const before=await store.read(boardId);if(!before.implementationRunId)return;
- const tasks=await native.listTasks(before.implementationRunId);
+ const tasks=await fetchTasks(before.implementationRunId);
  const coordinator=before.members.find(member=>member.identity===before.coordinatorIdentity);
  const envelope=coordinator?await native.runOrca<{messages:{id:string;body:string;type:string;from_handle:string;created_at:string}[]}>(["orchestration","check","--peek","--types","question","--terminal",coordinator.terminalHandle,"--run",before.implementationRunId]):{messages:[]};
  const changes: {attemptId:string;status:string;resultPath:string|null}[]=[];
