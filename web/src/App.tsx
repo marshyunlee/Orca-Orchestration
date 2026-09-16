@@ -1,3 +1,4 @@
+import { BoardView } from "./components/BoardView.js";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DagView } from "./components/DagView";
 import { GatePanel } from "./components/GatePanel";
@@ -143,7 +144,7 @@ function HandDrawnDefs() {
   );
 }
 
-export default function App() {
+function NativeHistory() {
   const [storedDag, setDag] = useState<DagResponse>(EMPTY);
   const [showCompleted, setShowCompleted] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -369,4 +370,9 @@ export default function App() {
       </div>
     </div>
   );
+}
+
+export default function App() {
+  const [history,setHistory]=useState(false);
+  return history?<><button className="return-to-board" onClick={()=>setHistory(false)}>← Group boards</button><NativeHistory/></>:<><HandDrawnDefs/><BoardView onHistory={()=>setHistory(true)}/></>;
 }

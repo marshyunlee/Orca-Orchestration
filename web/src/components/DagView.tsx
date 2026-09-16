@@ -658,3 +658,41 @@ export function DagView(props: {
     </ReactFlowProvider>
   );
 }
+
+import type { BoardSnapshot, BoardEdit } from "../../../shared/board.js";
+
+function BoardFlow({board,selectedId,onSelect,onEdit}:{board:BoardSnapshot;selectedId:string|null;onSelect:(id:string|null)=>void;onEdit:(operation:BoardEdit)=>void}) {
+  const [nodes,setNodes,onNodesChange]=useNodesState<Node<TaskNodeData>>([]);
+  const [edges,setEdges,onEdgesChange]=useEdgesState<Edge>([]);
+  const dragging=useRef<string|null>(null);
+  const flow=useReactFlow();
+  useEffect(()=>{if(nodes.length)void flow.fitView({padding:0.2,maxZoom:1});},[nodes.length,flow]);
+  useEffect(()=>{
+    setNodes(previous=>board.nodes.filter(node=>!node.removed).map((node,index)=>{
+      const retained=previous.find(item=>item.id===node.id);
+      const attempt=board.attempts.filter(attempt=>attempt.nodeId===node.id && attempt.nodeRevision===node.revision).at(-1);
+      const observed=attempt?.nativeStatus;
+      const status:TaskStatus=node.kind==="run"?(board.specApproval?"completed":"pending"):observed && Object.hasOwn(STATUS_META,observed)?observed as TaskStatus:"pending";
+      return {...retained,id:node.id,type:"task",position:dragging.current===node.id && retained?retained.position:node.position,
+        deletable:node.kind==="task",data:{label:node.title,status,selected:selectedId===node.id,dir:"LR",index,tilt:0,pop:false}};
+    }));
+    setEdges(board.edges.map(edge=>({...edge,type:"pencil"})));
+  },[board,selectedId,setNodes,setEdges]);
+  return <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
+    onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} fitView minZoom={0.2}
+    onNodeClick={(_,node)=>onSelect(node.id)} onPaneClick={()=>onSelect(null)}
+    onNodeDragStart={(_,node)=>{dragging.current=node.id;}}
+    onNodeDragStop={(_,node)=>{dragging.current=null;onEdit({kind:"move-node",nodeId:node.id,position:node.position});}}
+    onConnect={connection=>{if(connection.source && connection.target)onEdit({kind:"connect",source:connection.source,target:connection.target});}}
+    onBeforeDelete={async ({nodes:removedNodes,edges:removedEdges})=>{
+      if(document.activeElement?.matches("input,textarea,select,[contenteditable=true]")) return false;
+      if(removedNodes.length) removedNodes.forEach(node=>onEdit({kind:"remove-node",nodeId:node.id}));
+      else removedEdges.forEach(edge=>onEdit({kind:"disconnect",edgeId:edge.id}));
+      return false;
+    }} proOptions={{hideAttribution:true}}>
+    <Background variant={BackgroundVariant.Lines} gap={30} color="rgba(96,132,178,0.085)"/><Controls/>
+  </ReactFlow>;
+}
+export function BoardCanvas(props:Parameters<typeof BoardFlow>[0]) {
+  return <ReactFlowProvider><BoardFlow {...props}/></ReactFlowProvider>;
+}
