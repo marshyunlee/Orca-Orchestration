@@ -12,9 +12,10 @@ export function hasImportedWork(board:BoardSnapshot,nodeId:string):boolean {
 }
 export function importedControlPrompt(board:BoardSnapshot,action:ActionRecord):string{
  const payload=action.payload as Record<string,unknown>;
- return [`Existing-work owner request: ${payload.control}. Board ${board.id}; action ${action.id}; node ${action.nodeId}.`,
+ return [`CLI: ${process.env.ORCA_BOARD_CLI??"boardctl"}. Server: ${process.env.ORCA_BOARD_URL??`http://127.0.0.1:${process.env.PORT??8787}`}. Append --board ${board.id} and --url to every command.`,
+  `Existing-work owner request: ${payload.control}. Board ${board.id}; action ${action.id}; node ${action.nodeId}.`,
   `Preserve your current Run, Task, Dispatch, session and original approval scope. This is an addition to ongoing work. At your next safe checkpoint run owner-claim --action ${action.id}.`,
-  `Frozen source: ${JSON.stringify(payload.native)}; node revision ${payload.nodeRevision}. Read the saved node content and the human request: ${payload.body}`,
+  `Frozen source: ${JSON.stringify(payload.native)}; original question ${payload.messageId??"none"}; node revision ${payload.nodeRevision}. Read the saved node content and the human request: ${payload.body}`,
   'Handle this from your own owner session. Guidance goes to the exact current Dispatch; answers go to the original message. Pause holds your future launches while admitted work settles. Resume only the recorded approved scope.',
   'Stop/rerun requires actual settlement of current work and child writers; preserve pre-existing sessions. Changed inputs create a new Task; unchanged failed attempts use native retry rules. Publish the replacement through a fresh collection summary after native observation.',
   `Use owner-finish --action ${action.id} --stage acknowledged --evidence <receipt or checkpoint> when read. Use --stage applied only after handling, with concrete native receipts or attributed cooperative evidence. Acknowledgment does not imply application or task completion.`,

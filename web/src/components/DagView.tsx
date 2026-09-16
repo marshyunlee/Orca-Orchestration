@@ -676,10 +676,10 @@ function BoardFlow({board,selectedId,onSelect,onEdit}:{board:BoardSnapshot;selec
       const attempt=board.attempts.filter(attempt=>attempt.nodeId===node.id && attempt.nodeRevision===node.revision).at(-1);
       const component=board.components[node.id];
       const resultCurrent=component?.result?.nodeRevision===node.revision && component.result.gateDigest===component.gateDigest;
-      const observed=node.collaborate?(resultCurrent?"completed":component?.launches.some(launch=>['claimed','ready','unknown'].includes(launch.phase))?"dispatched":"pending"):attempt?.nativeStatus;
+      const observed=node.imported?(node.imported.status==="running"?"dispatched":node.imported.status):node.collaborate?(resultCurrent?"completed":component?.launches.some(launch=>['claimed','ready','unknown'].includes(launch.phase))?"dispatched":"pending"):attempt?.nativeStatus;
       const status:TaskStatus=node.kind==="run"?(board.specApproval?"completed":"pending"):observed && Object.hasOwn(STATUS_META,observed)?observed as TaskStatus:"pending";
       return {...retained,id:node.id,type:"task",position:dragged.current.get(node.id)??(dragging.current===node.id && retained?retained.position:node.position),
-        ariaLabel:`${node.kind}: ${node.title}`,deletable:node.kind==="task",data:{label:node.title,status,kind:node.kind,statusLabel:node.kind==="run"?(board.specApproval?"Spec approved":"Spec draft"):node.kind==="preview"?(board.preview?.current?"Ready to review":"Out of date"):node.collaborate?(resultCurrent?"Selected result":component?.phase??"Awaiting gate"):undefined,selected:selectedId===node.id,dir:"LR",index,tilt:0,pop:false}};
+        ariaLabel:`${node.kind}: ${node.title}`,deletable:node.kind==="task",data:{label:node.title,status,kind:node.kind,statusLabel:node.kind==="run"?(board.specApproval?"Spec approved":"Spec draft"):node.kind==="preview"?(board.preview?.current?"Ready to review":"Out of date"):node.imported?`${node.imported.native?"Native":"Reported"}: ${node.imported.status}`:node.collaborate?(resultCurrent?"Selected result":component?.phase??"Awaiting gate"):undefined,selected:selectedId===node.id,dir:"LR",index,tilt:0,pop:false}};
     }));
     setEdges(previous=>board.edges.map(edge=>({...previous.find(item=>item.id===edge.id),...edge,type:"pencil"})));
   },[board,selectedId,setNodes,setEdges]);

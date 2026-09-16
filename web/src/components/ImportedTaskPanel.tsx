@@ -1,0 +1,17 @@
+import {useState} from 'react';
+import type {BoardSnapshot,BoardNode,BoardEdit} from '../../../shared/board.js';
+export function ImportedTaskPanel({board,node,onEdit,readOnly=false}:{board:BoardSnapshot;node:BoardNode;onEdit:(operation:BoardEdit)=>void;readOnly?:boolean}){
+ const [body,setBody]=useState('');const source=node.imported;if(!source)return null;
+ const owner=board.members.find(member=>member.identity===source.ownerIdentity && member.terminalHandle===source.ownerHandle);
+ const actions=board.actions.filter(action=>action.kind==='import-control' && action.nodeId===node.id);
+ function control(control:string,messageId?:string){onEdit({kind:'import-control',nodeId:node.id,control,body,messageId});}
+ return <section className="imported-task"><h3>Existing work</h3><p>{source.native?'Native status':'Agent-reported status'}: <strong>{source.status}</strong> · observed {source.observedAt}</p><p>Owner: {source.ownerIdentity??source.ownerHandle??'Unresolved'}</p><p>Sources: {source.sourceIdentities.join(', ')}</p>
+ {source.native && <p>{source.native.hostId} · Run {source.native.runId} · Task {source.native.taskId} · Dispatch {source.native.dispatchId??'none observed'}</p>}
+ {!owner && <p>Include the actual controlling owner through Manage sessions, then refresh context to enable controls.</p>}
+ <p>Owner controls are cooperative. Pause holds board starts immediately; the owner's acknowledgment and applied receipt show whether its scheduler has paused. Existing sessions stay open.</p>
+ {Object.entries(source.proposals).map(([field,value])=><details key={field} open><summary>Source proposes a change to {field}</summary><pre className="preserve-lines">{value}</pre>{!readOnly && <><button onClick={()=>onEdit({kind:'resolve-import',nodeId:node.id,fields:[field],accept:true})}>Accept source change</button><button onClick={()=>onEdit({kind:'resolve-import',nodeId:node.id,fields:[field],accept:false})}>Keep my edit</button></>}</details>)}
+ <details><summary>Source references</summary>{source.references.map((reference,index)=><p key={index}>{reference}</p>)}</details>
+ {!readOnly && <><label>Guidance or control details<textarea value={body} onChange={event=>setBody(event.target.value)}/></label><div className="board-actions"><button disabled={!owner || !body.trim()} onClick={()=>control('guidance')}>Send guidance</button><button disabled={!owner} onClick={()=>control('pause')}>Pause owner</button><button disabled={!owner} onClick={()=>control('resume')}>Resume owner</button><button disabled={!owner} onClick={()=>control('stop-rerun')}>Stop and rerun through owner</button></div>{board.messages.filter(message=>message.importedNodeId===node.id && !message.answered).map(message=><article key={message.id}><p>{message.body}</p><button disabled={!owner || !body.trim()} onClick={()=>control('answer-question',message.nativeMessageId)}>Send answer through owner</button></article>)}</>}
+ {actions.map(action=>{const payload=action.payload as {control?:string;ownerStage?:string;ownerEvidence?:string};return <article key={action.id}><strong>{payload.control}</strong> · {payload.ownerStage??action.phase}<p>{payload.ownerEvidence??'Awaiting owner response'}</p>{action.error && <p role="alert">{action.error}</p>}</article>;})}
+ </section>;
+}

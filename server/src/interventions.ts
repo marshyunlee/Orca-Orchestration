@@ -1,3 +1,4 @@
+import {runOrca} from './orca.js';
 import {createHash,randomUUID} from "node:crypto";
 import type {BoardStore} from "./boardStore.js";
 import {isRecord,type BoardSnapshot,type ActionRecord} from "../../shared/board.js";
@@ -6,7 +7,7 @@ import {hasActiveWriter} from "./executionBridge.js";
 import type {NativeOperation,NativeReceipt} from "./orca.js";
 
 function actionPayload(action:ActionRecord):Record<string,unknown>{if(!isRecord(action.payload))throw new Error("Action payload missing");return action.payload;}
-export function createActionExecutor(store:BoardStore){
+export function createActionExecutor(store:BoardStore,native={runOrca}){
  return {
   async begin(boardId:string,actionId:string,identity:string):Promise<{operation:NativeOperation|null;token:string|null;waiting?:string}>{
    const before=await store.read(boardId),action=before.actions.find(action=>action.id===actionId);
@@ -36,9 +37,14 @@ export function createActionExecutor(store:BoardStore){
         if(owned){
           existingRunId=before.components[owned.id]?.runId??null;
           if(!existingRunId)throw new Error("Refresh the coordinator's component binding before starting direct tasks");
-        }else if(before.nodes.some(node=>node.imported?.ownerIdentity===identity && node.imported.native)){
-          existingRunId=before.nodes.find(node=>node.imported?.ownerIdentity===identity && node.imported.native)!.imported!.native!.runId;
-        }else operation={kind:"create-run",objective:`${before.title} · ${before.deliveryId}`};
+        }else{
+          if(before.collection.requests.length){
+            const member=before.members.find(member=>member.identity===identity)!;
+            const observed=await native.runOrca<{run:{id:string}|null}>(['orchestration','run-current','--from',member.terminalHandle]);
+            existingRunId=observed.run?.id??null;
+          }
+          if(!existingRunId)operation={kind:"create-run",objective:`${before.title} · ${before.deliveryId}`};
+        }
       }
       break;
     case "guidance":

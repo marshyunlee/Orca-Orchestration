@@ -11,7 +11,7 @@ import { Router, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import { createBoardNode, isRecord, validateContent, validateAssignment, validateMembers, type BoardSnapshot, type BoardEdit } from "../../shared/board.js";
 import { BoardConflict, type BoardStore } from "./boardStore.js";
-import { findDownstream, digestSpec } from "./boardGraph.js";
+import { findDownstream, digestSpec, digestValue } from "./boardGraph.js";
 import { createActionExecutor } from "./interventions.js";
 import { createExecutionBridge, hasActiveWriter } from "./executionBridge.js";
 import { createCoordinatorActions, type CoordinatorProposal } from "./coordinatorActions.js";
@@ -43,6 +43,7 @@ export function applyBoardEdit(board: BoardSnapshot, operation: BoardEdit): Boar
     case "remove-selection": {
       if(!Array.isArray(operation.nodeIds) || !Array.isArray(operation.edgeIds))throw new Error("Selection required");
       for(const nodeId of operation.nodeIds)applyBoardEdit(board,{kind:"remove-node",nodeId});
+      for(const edge of board.edges)if(operation.edgeIds.includes(edge.id) && edge.importedKey)board.collection.suppressedEdges.push(edge.importedKey);
       board.edges=board.edges.filter(edge=>!operation.edgeIds.includes(edge.id));return board;
     }
     case "add-task": {
@@ -126,6 +127,17 @@ export function createBoardRouter(store: BoardStore, token: string): Router {
   const executor=createActionExecutor(store);
   const membership=createMembershipActions(store);
   const imports=createImportControls(store);
+  async function queueOwnerScope(board:BoardSnapshot,control:string,actionId:string,nodeIds?:string[]):Promise<BoardSnapshot>{
+    let current=board;const queued:string[]=[];
+    for(const node of board.nodes.filter(node=>!node.removed && node.imported && node.imported.status!=="completed" && (!nodeIds || nodeIds.includes(node.id)))){
+      if(!board.members.some(member=>member.identity===node.imported!.ownerIdentity && member.terminalHandle===node.imported!.ownerHandle))continue;
+      const ownerAction=`scope-${digestValue([actionId,node.id])}`;
+      current=await imports.queue(current.id,current.revision,ownerAction,node.id,control,`Human requested ${control} for this board scope.`);
+      queued.push(ownerAction);
+    }
+    for(const id of queued)void coordinator.deliver(current.id,id).catch(()=>{});
+    return current;
+  }
   router.get("/",async (_request,response)=>{try{response.json({boards:(await store.list()).map(board=>({...board,observationError:observationErrors.get(board.id),discussionStatus:discussionStatuses.get(board.id)}))});}catch(error){sendBoardError(response,error);}});
   router.get("/:id",async (request,response)=>{try{const board=await store.read(request.params.id);response.json({...board,digests:{spec:digestSpec(board),graph:digestExecutableBoard(board)}});}catch(error){sendBoardError(response,error);}});
   router.use(requireToken(token));
@@ -137,7 +149,9 @@ export function createBoardRouter(store: BoardStore, token: string): Router {
       validateMembers(request.body.members);
       request.body.members=await Promise.all(request.body.members.map(verifyGroupMember));
       if(request.body.members.length && !request.body.coordinatorIdentity)throw new Error("Select a coordinator for the existing sessions");
-      const board=await store.create(request.body,request.body.actionId);response.json(board);
+      let board=await store.create(request.body,request.body.actionId);
+      if(typeof request.body.prompt==='string')board=await store.update(board.id,board.revision,`${request.body.actionId}-root`,current=>{current.nodes.find(node=>node.kind==='run')!.content.prompt=request.body.prompt;return current;});
+      response.json(board);
       if(board.members.length)void collectBoardSessions(store,board.id).catch(()=>{});
     } catch(error){sendBoardError(response,error);}
   });
@@ -154,11 +168,12 @@ export function createBoardRouter(store: BoardStore, token: string): Router {
         const path=await store.artifact(current.id,`delivery-${randomUUID()}`,JSON.stringify(current));
         response.json(await store.update(current.id,baseRevision as number,actionId as string,board=>{
           board.history.push({deliveryId:board.deliveryId,snapshotPath:path});board.deliveryId=`delivery_${randomUUID()}`;
-          board.nodes=board.nodes.filter(node=>node.kind==="run");board.edges=[];board.attempts=[];board.components={};board.actions=[];board.preview=null;board.pausedNodeIds=[];board.pauseNewStarts=true;board.acceptedGraphDigest=null;board.acceptedNodeDigests={};board.implementationRunId=null;return board;
+          board.nodes=board.nodes.filter(node=>node.kind==="run");board.collection.suppressedEdges=[];board.edges=[];board.attempts=[];board.components={};board.actions=[];board.preview=null;board.pausedNodeIds=[];board.pauseNewStarts=true;board.acceptedGraphDigest=null;board.acceptedNodeDigests={};board.implementationRunId=null;return board;
         }));return;
       }
       if (isRecord(operation) && [...componentActionKinds,"discuss","generate-tasks","review-graph","answer-question","start","resume","guidance","stop-rerun","reconcile"].includes(String(operation.kind))) {
-        const saved=await coordinator.queue(String(request.params.id),baseRevision as number,actionId as string,String(operation.kind),String(operation.body??""),operation);
+        let saved=await coordinator.queue(String(request.params.id),baseRevision as number,actionId as string,String(operation.kind),String(operation.body??""),operation);
+        if(operation.kind==='resume')saved=await queueOwnerScope(saved,'resume',String(actionId),Array.isArray(operation.nodeIds)?operation.nodeIds as string[]:undefined);
         response.json(saved);
         void coordinator.deliver(saved.id,actionId as string).catch(()=>{});
         return;
@@ -172,7 +187,9 @@ export function createBoardRouter(store: BoardStore, token: string): Router {
           response.json(saved);void coordinator.deliver(saved.id,actionId as string).catch(()=>{});return;
         }
       }
-      const saved=await store.update(String(request.params.id),baseRevision as number,actionId as string,board=>applyBoardEdit(board,operation as BoardEdit));response.json(saved);
+      let saved=await store.update(String(request.params.id),baseRevision as number,actionId as string,board=>applyBoardEdit(board,operation as BoardEdit));
+      if(isRecord(operation) && operation.kind==="pause")saved=await queueOwnerScope(saved,"pause",String(actionId),Array.isArray(operation.nodeIds)?operation.nodeIds as string[]:undefined);
+      response.json(saved);
       if(isRecord(operation) && operation.kind==="members")void collectBoardSessions(store,saved.id).catch(()=>{});
     } catch(error){sendBoardError(response,error);}
   });

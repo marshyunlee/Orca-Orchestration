@@ -22,11 +22,11 @@ export function createSessionCollection(store:BoardStore,port=defaultPort){
   async begin(boardId:string):Promise<BoardSnapshot>{
    const before=await store.read(boardId);
    for(const member of before.members){
-    if(before.collection.requests.some(request=>sameBinding(request.member,member) && !request.responsePath))continue;
+    if(before.collection.requests.some(request=>sameBinding(request.member,member) && (!request.deliveryId || request.deliveryId===before.deliveryId) && !request.responsePath))continue;
     const requestId=`collection_${randomUUID()}`;
     await changeCollectedBoard(store,boardId,requestId,board=>{
-     if(!board.members.some(current=>sameBinding(current,member)) || board.collection.requests.some(request=>sameBinding(request.member,member) && !request.responsePath))return board;
-     board.collection.requests.push({id:requestId,member,createdAt:new Date().toISOString(),savedPath:null,savedCapturedAt:null,contextError:null,delivery:member.identity===board.coordinatorIdentity?'self':'pending',requestId:null,receiptPath:null,responsePath:null,respondedAt:null});return board;
+     if(!board.members.some(current=>sameBinding(current,member)) || board.collection.requests.some(request=>sameBinding(request.member,member) && (!request.deliveryId || request.deliveryId===board.deliveryId) && !request.responsePath))return board;
+     board.collection.requests.push({id:requestId,member,deliveryId:board.deliveryId,createdAt:new Date().toISOString(),savedPath:null,savedCapturedAt:null,contextError:null,delivery:member.identity===board.coordinatorIdentity?'self':'pending',requestId:null,receiptPath:null,responsePath:null,respondedAt:null});return board;
     });
     const saved=await port.context(member).catch(error=>({available:false,capturedAt:null,references:[],text:'',error:String(error)}));
     const path=await store.artifact(boardId,`context-${randomUUID()}`,JSON.stringify(saved));
@@ -46,7 +46,7 @@ export function createSessionCollection(store:BoardStore,port=defaultPort){
   },
   async prepareDelivery(boardId:string,requestId:string,identity:string):Promise<NativeOperation>{
    const board=await store.read(boardId);await verifyCoordinator(board,identity);
-   const request=board.collection.requests.find(request=>request.id===requestId);if(!request || request.delivery!=='pending' || request.responsePath)throw new Error('Summary already admitted; reconcile its original receipt');
+   const request=board.collection.requests.find(request=>request.id===requestId);if(!request || (request.deliveryId && request.deliveryId!==board.deliveryId) || request.delivery!=='pending' || request.responsePath)throw new Error('Summary already admitted; reconcile its original receipt');
    if(!board.members.some(member=>sameBinding(member,request.member)))throw new Error('Summary member binding changed');await port.verify(request.member);
    const url=process.env.ORCA_BOARD_URL??`http://127.0.0.1:${process.env.PORT??8787}`;
    const runtime=process.env.ORCA_BOARD_RUNTIME??join(homedir(),'.local/state/orca-board');
@@ -76,7 +76,7 @@ export function createSessionCollection(store:BoardStore,port=defaultPort){
    const path=await store.artifact(boardId,`summary-${randomUUID()}`,JSON.stringify(summary));
    return changeCollectedBoard(store,boardId,`${requestId}-response`,board=>{
     const entry=board.collection.requests.find(entry=>entry.id===requestId)!;entry.responsePath=path;entry.respondedAt=new Date().toISOString();
-    if(!board.members.some(member=>sameBinding(member,entry.member)))return board;
+    if((entry.deliveryId && entry.deliveryId!==board.deliveryId) || !board.members.some(member=>sameBinding(member,entry.member)))return board;
     const items=summary.items.map(item=>{
      if(!item.native)return {...item,workspacePath:request.member.workspacePath,resultPath:results.get(item.itemId)??null,references:[...item.references,path]};
      const existing=board.nodes.find(node=>node.imported?.key===importedSourceKey(item))?.imported;

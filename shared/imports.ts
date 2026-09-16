@@ -11,7 +11,7 @@ export interface ImportedWork extends ImportedItem {
  resultRevision?:number;resultDigest?:string;
 }
 export interface CollectionRequest {
- id:string;member:MemberRef;createdAt:string;savedPath:string|null;savedCapturedAt:string|null;
+ id:string;member:MemberRef;createdAt:string;deliveryId?:string;savedPath:string|null;savedCapturedAt:string|null;
  contextError:string|null;delivery:'pending'|'sending'|'sent'|'unknown'|'self';
  requestId:string|null;receiptPath:string|null;responsePath:string|null;respondedAt:string|null;
 }

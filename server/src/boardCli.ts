@@ -90,10 +90,8 @@ Use --terminal <your-own-handle> when the tool shell lacks inherited Orca identi
     const handle=callerHandle;
     const members=resolveEntryMembers(inventory.members,JSON.parse(option("--members","[]")),handle);
     const actionId=option("--action"),body=option("--request");
-    let created=await request<BoardSnapshot>("/api/boards",{title:option("--title"),members,coordinatorIdentity:members[0].identity,actionId});
+    let created=await request<BoardSnapshot>("/api/boards",{title:option("--title"),members,coordinatorIdentity:members[0].identity,actionId,prompt:body});
     await selectedCaller(created);
-    const root=created.nodes.find(node=>node.kind==="run")!;
-    created=await request<BoardSnapshot>(`/api/boards/${created.id}/edit`,{baseRevision:created.revision,actionId:`${actionId}-root`,operation:{kind:"edit-node",nodeId:root.id,title:root.title,content:{...root.content,prompt:body},assignment:null}});
     
     console.log(JSON.stringify({board:created,url,role:"coordinator",collectionQueued:true}));return;
   }

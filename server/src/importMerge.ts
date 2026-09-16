@@ -1,6 +1,6 @@
 import {createBoardNode, type BoardSnapshot, type NodeContent} from '../../shared/board.js';
 import {importedSourceKey, validateImportedItem, type ImportedItem} from '../../shared/imports.js';
-import {digestValue} from './boardGraph.js';
+import {digestValue,findDownstream} from './boardGraph.js';
 const fields:(keyof NodeContent)[]=['prompt','plan','design','implementationNotes'];
 export function mergeImportedWork(board:BoardSnapshot,items:ImportedItem[]):void {
  for(const item of items){
@@ -23,7 +23,7 @@ export function mergeImportedWork(board:BoardSnapshot,items:ImportedItem[]):void
     if(node.content[field]===previous.baseline.content[field]){node.content[field]=item.content[field];delete previous.proposals[field];}
     else if(item.content[field]!==previous.baseline.content[field])previous.proposals[field]=item.content[field];
    }
-   if(before!==JSON.stringify([node.title,node.content]))node.revision++;
+   if(before!==JSON.stringify([node.title,node.content])){node.revision++;board.pausedNodeIds=[...new Set([...board.pausedNodeIds,...findDownstream(node.id,board.edges)])];}
    node.imported={...previous,...structuredClone(item),sourceIdentities:[...new Set([...previous.sourceIdentities,item.sourceIdentity])],baseline:{title:item.title,content:structuredClone(item.content)}};
   }
   if(item.status==='completed' && item.resultPath && Object.keys(node.imported!.proposals).length===0 && node.title===item.title && fields.every(field=>node!.content[field]===item.content[field]))node.imported!.resultRevision=node.revision;

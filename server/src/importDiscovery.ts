@@ -25,7 +25,8 @@ export async function discoverImportedWork(members:MemberRef[],inventory:MemberR
  do{const page=await native.runOrca<{runs:OrcaRun[];nextCursor?:string}>(['orchestration','run-list','--limit','100',...(cursor?['--cursor',cursor]:[])]);runs.push(...page.runs.filter(run=>run.legacy!==1));if(page.nextCursor===cursor && cursor)throw new Error('Native Run cursor did not advance');cursor=page.nextCursor;}while(cursor);
  const entries=await Promise.all(runs.map(async run=>[run.id,await native.listTasks(run.id)] as const));
  const tasksByRun=new Map(entries);
- return {items:selectImportedTasks(members,inventory,runs,tasksByRun),tasks:entries.flatMap(([,tasks])=>tasks)};
+ const items=selectImportedTasks(members,inventory,runs,tasksByRun);
+ return {items,tasks:entries.flatMap(([,tasks])=>tasks).filter(task=>items.some(item=>item.native?.runId===task.run_id && item.native?.taskId===task.id))};
 }
 export async function persistImportedItems(store:BoardStore,board:BoardSnapshot,items:ImportedItem[],tasks:OrcaTask[]):Promise<ImportedItem[]>{
  const results=new Map<string,string>();

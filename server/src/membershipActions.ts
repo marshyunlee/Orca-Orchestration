@@ -1,3 +1,4 @@
+import {hasImportedWork} from './importControls.js';
 import {hasComponentWork} from "./componentActivity.js";
 import {createHash,randomUUID} from "node:crypto";
 import type {BoardStore} from "./boardStore.js";
@@ -13,6 +14,7 @@ export function createMembershipActions(store:BoardStore, verify=verifyGroupMemb
   if(action.payload.membershipToken)throw new Error("Membership change already admitted; inspect the shared group before retrying");
   const members=await Promise.all(desired.members.map(verify));
   const removed=board.members.filter(member=>!members.some(candidate=>candidate.identity===member.identity && candidate.incarnationId===member.incarnationId && candidate.terminalHandle===member.terminalHandle));
+  if(removed.some(member=>board.nodes.some(node=>node.imported?.ownerIdentity===member.identity && hasImportedWork(board,node.id))))throw new Error("Settle imported owner work before rebinding its session");
   if(removed.some(member=>board.nodes.some(node=>node.collaborate?.masterIdentity===member.identity && hasComponentWork(board,node.id))))throw new Error("Settle component work before removing or rebinding its master");
   if(board.attempts.some(attempt=>hasActiveWriter(attempt) && (desired.coordinatorIdentity!==board.coordinatorIdentity || removed.some(member=>member.terminalHandle===attempt.assigneeHandle))))throw new Error("Settle outstanding work before this membership change");
   if(desired.coordinatorIdentity!==board.coordinatorIdentity && board.actions.some(other=>other.id!==actionId && ["claimed","unknown"].includes(other.phase)))throw new Error("Reconcile outstanding control actions before coordinator handover");
@@ -32,7 +34,7 @@ export function createMembershipActions(store:BoardStore, verify=verifyGroupMemb
    if(JSON.stringify(identities)!==JSON.stringify(members.map(member=>member.identity).sort()))throw new Error("Shared group membership differs from the approved selection");
    const previous=current.coordinatorIdentity;current.members=members;current.coordinatorIdentity=String(desired.coordinatorIdentity);target.phase="applied";target.error=null;
    if(previous!==current.coordinatorIdentity){
-    current.actions.push({id:`handover_${randomUUID()}`,kind:"handover",baseRevision:current.revision,phase:"queued",actor:"human",nodeId:null,requestId:null,receiptPath:null,error:null,payload:{delivery:"pending",body:"Complete the explicitly requested coordinator handover.",remainingRunIds:[...new Set([receipt.run_id,current.implementationRunId].filter(value=>typeof value==="string"))]}});
+    current.actions.push({id:`handover_${randomUUID()}`,kind:"handover",baseRevision:current.revision,phase:"queued",actor:"human",nodeId:null,requestId:null,receiptPath:null,error:null,payload:{delivery:"pending",body:"Complete the explicitly requested coordinator handover.",remainingRunIds:[...new Set([receipt.run_id,...(current.nodes.some(node=>node.imported?.native?.runId===current.implementationRunId)?[]:[current.implementationRunId])].filter(value=>typeof value==="string"))]}});
    }
    return current;
   });
