@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { resolveBoardEntry, resolveEntryMembers, resolveEntryRole } from "./boardEntry.js";
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -34,6 +35,10 @@ async function selectedCaller(board:BoardSnapshot):Promise<CoordinatorCaller>{
 async function main():Promise<void>{
   if(!args.length || args.includes("--help")){
     console.log(`boardctl <command> --board <id> [--url http://127.0.0.1:8787]
+  create --title <title> --members <JSON names> --request <text> --action <stable-id>
+                               Create a shared board and queue group discussion
+  resume [--board <id> | --title <exact-title>]
+                               Resume the existing delivery in your assigned role
   read                         Read board, revisions, digests, queued actions and attempts
   claim --action <id>           Claim one coordinator action before doing work
   publish --action <id> --base-revision <n> --file <proposal.json>
@@ -56,6 +61,27 @@ Native operations run only inside the selected coordinator. Unknown receipts req
     const caller=JSON.parse(await readFile(option("--caller-file"),"utf8")) as CoordinatorCaller;
     const operation=JSON.parse(await readFile(option("--operation-file"),"utf8")) as NativeOperation;
     const receipt=await executeNativeOperation(operation,caller);console.log(JSON.stringify(receipt));if(receipt.phase!=="applied")process.exitCode=1;return;
+  }
+  if(args[0]==="create"){
+    const inventory=await request<{members:MemberRef[]}>("/api/sessions");
+    const handle=process.env.ORCA_TERMINAL_HANDLE??"";
+    const members=resolveEntryMembers(inventory.members,JSON.parse(option("--members","[]")),handle);
+    const actionId=option("--action"),body=option("--request");
+    let created=await request<BoardSnapshot>("/api/boards",{title:option("--title"),members,coordinatorIdentity:members[0].identity,actionId});
+    await selectedCaller(created);
+    const root=created.nodes.find(node=>node.kind==="run")!;
+    created=await request<BoardSnapshot>(`/api/boards/${created.id}/edit`,{baseRevision:created.revision,actionId:`${actionId}-root`,operation:{kind:"edit-node",nodeId:root.id,title:root.title,content:{...root.content,prompt:body},assignment:null}});
+    if(members.length>1)created=await request<BoardSnapshot>(`/api/boards/${created.id}/edit`,{baseRevision:created.revision,actionId:`${actionId}-discuss`,operation:{kind:"discuss",body}});
+    console.log(JSON.stringify({board:created,url,role:"coordinator",discussionQueued:members.length>1}));return;
+  }
+  if(args[0]==="resume"){
+    const {boards}=await request<{boards:BoardSnapshot[]}>("/api/boards");
+    const selected=resolveBoardEntry(boards,{id:args.includes("--board")?option("--board"):undefined,title:args.includes("--title")?option("--title"):undefined});
+    const role=resolveEntryRole(selected,process.env.ORCA_TERMINAL_HANDLE??"");
+    const member=selected.members.find(member=>member.identity===role.identity)!;
+    const {terminal}=await runOrca<{terminal:{incarnationId:string;executionHostId:string;agentIdentity:string}}>(["terminal","show","--terminal",member.terminalHandle]);
+    if(terminal.incarnationId!==member.incarnationId || terminal.executionHostId!==member.hostId || terminal.agentIdentity!==member.source)throw new Error("Session binding changed; reselect it before resuming");
+    console.log(JSON.stringify({board:selected,url,...role}));return;
   }
   const id=option("--board");
   const board=await request<BoardSnapshot>(`/api/boards/${encodeURIComponent(id)}`);

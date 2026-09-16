@@ -1,3 +1,4 @@
+import { validateComponentBinding } from "../../shared/collaborate.js";
 import {observationErrors,discussionStatuses} from "./nativeObservation.js";
 import {createMembershipActions} from "./membershipActions.js";
 import {createWorkspaceRouter} from "./workspaceRoutes.js";
@@ -40,13 +41,14 @@ export function applyBoardEdit(board: BoardSnapshot, operation: BoardEdit): Boar
       if (!Number.isFinite(operation.position?.x) || !Number.isFinite(operation.position?.y)) throw new Error("Invalid position");
       target!.position=operation.position; return board;
     case "edit-node": {
-      validateContent(operation.content); validateAssignment(operation.assignment);
+      validateContent(operation.content); validateAssignment(operation.assignment); validateComponentBinding(operation.collaborate);
+      if (operation.collaborate && !board.members.some(member=>member.identity===operation.collaborate!.masterIdentity)) throw new Error("Component master must be a group member");
       if (typeof operation.title !== "string" || !operation.title.trim()) throw new Error("Title required");
       if (target!.kind === "preview") throw new Error("Update Preview through graph review");
       const assignment=operation.assignment;
       if (assignment?.kind === "member" && !board.members.some(member=>member.identity===assignment.identity)) throw new Error("Assigned session is not a member");
-      if (JSON.stringify([target!.title,target!.content,target!.assignment]) === JSON.stringify([operation.title,operation.content,operation.assignment])) return board;
-      target!.title=operation.title; target!.content=operation.content; target!.assignment=operation.assignment; target!.revision++;
+      if (JSON.stringify([target!.title,target!.content,target!.assignment,target!.collaborate]) === JSON.stringify([operation.title,operation.content,operation.assignment,operation.collaborate])) return board;
+      target!.title=operation.title; target!.content=operation.content; target!.assignment=operation.assignment; target!.collaborate=operation.collaborate; target!.revision++;
       if (target!.kind === "run") board.specApproval=null;
       if (board.attempts.some(attempt=>attempt.nodeId===target!.id && hasActiveWriter(attempt))) {
         board.pausedNodeIds=[...new Set([...board.pausedNodeIds,...findDownstream(target!.id,board.edges)])];

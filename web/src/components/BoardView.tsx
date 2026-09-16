@@ -66,7 +66,7 @@ export function BoardView({onHistory}:{onHistory:()=>void}) {
     if(state.draftRevisions[prefix]!==undefined && state.draftRevisions[prefix]!==node.revision) {
       dispatch({type:"save-conflicted",boardId:board.id,error:"This node changed while you were editing. Your draft is preserved; compare the current revision before saving."});return;
     }
-    void edit({kind:"edit-node",nodeId:node.id,title,content,assignment},Object.fromEntries(Object.entries(state.drafts).filter(([key])=>key.startsWith(prefix+"/"))));
+    void edit({kind:"edit-node",nodeId:node.id,title,content,assignment,collaborate:node.collaborate},Object.fromEntries(Object.entries(state.drafts).filter(([key])=>key.startsWith(prefix+"/"))));
   }
   async function createGroup() {
     setBusy(true);

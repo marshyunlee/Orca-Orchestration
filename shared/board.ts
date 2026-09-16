@@ -1,3 +1,4 @@
+import type { ComponentBinding } from "./collaborate.js";
 export type AgentSource = "codex" | "claude" | "cursor" | "other";
 export type NodeKind = "run" | "task" | "preview";
 export interface MemberRef {
@@ -11,7 +12,7 @@ export type Assignment =
 export interface NodeContent { prompt: string; plan: string; design: string; implementationNotes: string }
 export interface BoardNode {
   id: string; kind: NodeKind; title: string; revision: number;
-  content: NodeContent; assignment: Assignment | null;
+  content: NodeContent; assignment: Assignment | null; collaborate?: ComponentBinding;
   position: { x: number; y: number }; removed: boolean;
 }
 export interface BoardEdge { id: string; source: string; target: string }
@@ -56,7 +57,7 @@ export type BoardEdit =
   | { kind: "accept-result"; nodeId: string; attemptId: string }
   | { kind: "remove-selection"; nodeIds: string[]; edgeIds: string[] }
   | { kind: "add-task"; title: string }
-  | { kind: "edit-node"; nodeId: string; title: string; content: NodeContent; assignment: Assignment | null }
+  | { kind: "edit-node"; nodeId: string; title: string; content: NodeContent; assignment: Assignment | null; collaborate?: ComponentBinding }
   | { kind: "move-node"; nodeId: string; position: { x: number; y: number } }
   | { kind: "connect"; source: string; target: string }
   | { kind: "disconnect"; edgeId: string }

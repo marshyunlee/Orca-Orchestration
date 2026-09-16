@@ -28,6 +28,7 @@ export function createExecutionBridge(store:BoardStore, members={verify:verifyGr
       const existing=before.actions.find(action=>action.id===actionId);
       if(existing){const permit=payload(before,actionId).permit;if(permit.nodeId!==nodeId || permit.nodeRevision!==nodeRevision)throw new Error("Action ID belongs to different inputs");return permit;}
       const node=before.nodes.find(node=>node.id===nodeId && !node.removed && node.kind==="task");
+      if(node?.collaborate)throw new Error("Use the component master and restricted collaborate launcher");
       if(!node || !node.assignment)throw new Error("Task assignment required");
       let memberHandle:string|null=null,workspacePath:string;
       if(node.assignment.kind==="member"){

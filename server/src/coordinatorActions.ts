@@ -110,14 +110,14 @@ export function createCoordinatorActions(store:BoardStore,port:CoordinatorPort=c
               root.content.design=proposal.text;root.revision++;board.specApproval=null;break;
             case "graph": {
               if(action.kind!=="generate-tasks" || !board.specApproval || board.specApproval.digest!==digestSpec(board) || !Array.isArray(proposal.nodes) || !Array.isArray(proposal.edges))throw new Error("Approved specification and task graph required");
-              for(const node of proposal.nodes){if(node.kind!=="task")throw new Error("Graph proposals contain task nodes only");validateContent(node.content);validateAssignment(node.assignment);}
+              for(const node of proposal.nodes){if(node.kind!=="task")throw new Error("Graph proposals contain task nodes only");validateContent(node.content);validateAssignment(node.assignment);if(node.collaborate && !board.members.some(member=>member.identity===node.collaborate!.masterIdentity))throw new Error("Component master must be a group member");}
               const newIds=new Set(proposal.nodes.map(node=>node.id));
               for(const old of board.nodes.filter(node=>node.kind==="task")){
                 const replacement=proposal.nodes.find(node=>node.id===old.id);
-                const changed=!replacement || JSON.stringify([replacement.title,replacement.content,replacement.assignment,proposal.edges.filter(edge=>edge.target===old.id).map(edge=>edge.source).sort()])!==JSON.stringify([old.title,old.content,old.assignment,board.edges.filter(edge=>edge.target===old.id).map(edge=>edge.source).sort()]);
+                const changed=!replacement || JSON.stringify([replacement.title,replacement.content,replacement.assignment,replacement.collaborate,proposal.edges.filter(edge=>edge.target===old.id).map(edge=>edge.source).sort()])!==JSON.stringify([old.title,old.content,old.assignment,old.collaborate,board.edges.filter(edge=>edge.target===old.id).map(edge=>edge.source).sort()]);
                 if(board.attempts.some(attempt=>attempt.nodeId===old.id && ["admitted","ready","dispatched","unknown"].includes(attempt.nativeStatus)) && changed)throw new Error("Reconcile active task edits through intervention controls");
               }
-              board.nodes=[...board.nodes.filter(node=>node.kind!=="task" || !newIds.has(node.id)).map(node=>node.kind==="task"?{...node,removed:true}:node),...proposal.nodes.map(node=>({...node,removed:false,revision:(()=>{const old=board.nodes.find(old=>old.id===node.id);return old && JSON.stringify([old.title,old.content,old.assignment])===JSON.stringify([node.title,node.content,node.assignment])?old.revision:(old?.revision??0)+1;})()}))];
+              board.nodes=[...board.nodes.filter(node=>node.kind!=="task" || !newIds.has(node.id)).map(node=>node.kind==="task"?{...node,removed:true}:node),...proposal.nodes.map(node=>({...node,removed:false,revision:(()=>{const old=board.nodes.find(old=>old.id===node.id);return old && JSON.stringify([old.title,old.content,old.assignment,old.collaborate])===JSON.stringify([node.title,node.content,node.assignment,node.collaborate])?old.revision:(old?.revision??0)+1;})()}))];
               board.edges=proposal.edges;validateGraph(board.nodes,board.edges);break;
             }
             case "preview": {
