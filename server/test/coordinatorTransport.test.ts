@@ -54,7 +54,11 @@ if (args[0] === 'terminal') {
     assert.equal(unknown.phase, "unknown");
     assert.equal(unknown.requestId, null);
     assert.equal(await readFile(join(directory, "effect"), "utf8"), "created");
+    delete process.env.ORCA_TERMINAL_HANDLE;
+    await assert.rejects(executeNativeOperation({kind:"send-guidance",dispatchId:"dispatch_fixture",body:"No implicit identity"},caller,options),/coordinator process/);
+    assert.equal((await executeNativeOperation({kind:"send-guidance",dispatchId:"dispatch_fixture",body:"Own verified explicit identity"},caller,{...options,callerTerminal:caller.terminalHandle})).phase,"applied");
     process.env.ORCA_TERMINAL_HANDLE = "term_other";
+    await assert.rejects(executeNativeOperation({kind:"send-guidance",dispatchId:"dispatch_fixture",body:"Wrong inherited identity"},caller,{...options,callerTerminal:caller.terminalHandle}),/coordinator process/);
     await assert.rejects(executeNativeOperation({ kind: "create-run", objective: "cannot impersonate" }, caller, options), /coordinator process/);
   } finally {
     if (previous === undefined) delete process.env.ORCA_TERMINAL_HANDLE;

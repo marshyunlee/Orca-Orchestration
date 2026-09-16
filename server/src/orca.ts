@@ -73,9 +73,9 @@ function buildNativeArguments(operation: NativeOperation, caller: CoordinatorCal
 export async function executeNativeOperation(
   operation: NativeOperation,
   caller: CoordinatorCaller,
-  options: { executable?: string; timeoutMs?: number; retryRequest?: string } = {},
+  options: { executable?: string; timeoutMs?: number; retryRequest?: string; callerTerminal?: string } = {},
 ): Promise<NativeReceipt> {
-  if (!caller.terminalHandle || process.env.ORCA_TERMINAL_HANDLE !== caller.terminalHandle) {
+  if (!caller.terminalHandle || (process.env.ORCA_TERMINAL_HANDLE ?? options.callerTerminal) !== caller.terminalHandle || (options.callerTerminal && options.callerTerminal!==caller.terminalHandle)) {
     throw new Error("Native operations must run inside the selected coordinator process");
   }
   const executable = options.executable ?? process.env.ORCA_CLI_COMMAND ?? (process.env.ORCA_DEV_REPO_ROOT ? "orca-dev" : "orca");

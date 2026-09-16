@@ -19,6 +19,8 @@ test('component requests reach their master without a parent Dispatch or Run tak
   let board=await store.create({title:'Delivery',members:[coordinator,master],coordinatorIdentity:coordinator.identity},'create');
   board=await store.update(board.id,board.revision,'setup',current=>{const node=createBoardNode('component','task','Component');node.collaborate={masterIdentity:master.identity,manifestPath:'/manifest.json'};current.nodes.push(node);current.implementationRunId='run_parent';current.specApproval={nodeRevision:1,digest:digestSpec(current)};current.acceptedNodeDigests.component=digestNodeInput(current,'component');current.pauseNewStarts=false;return current;});
   board=await actions.queue(board.id,board.revision,'start-component','component-start','Implement component',{nodeId:'component'});
+  board=await actions.queue(board.id,board.revision,'duplicate-start','component-start','Implement component',{nodeId:'component'});
+  assert.equal(board.actions.filter(action=>action.kind==='component-start').length,1);
   await actions.deliver(board.id,'start-component');
   assert.deepEqual(recipients,[master.identity]);
   await assert.rejects(actions.claim(board.id,'start-component',coordinator.identity),/master/);

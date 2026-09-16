@@ -3,6 +3,7 @@ import { resolveBoardDependencies } from "./boardDependencies.js";
 import { hasComponentWork } from "./componentActivity.js";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import type { BoardStore } from "./boardStore.js";
 import { BoardConflict } from "./boardStore.js";
 import { digestExecutableBoard, digestSpec, digestNodeInput, validateGraph } from "./boardGraph.js";
@@ -38,6 +39,9 @@ export function createCoordinatorActions(store:BoardStore,port:CoordinatorPort=c
           if(!node?.collaborate || !board.members.some(member=>member.identity===node.collaborate!.masterIdentity))throw new Error("Component master required");
           if(kind==="component-question" && (!isRecord(payload) || !board.messages.some(message=>message.componentNodeId===node.id && message.nativeMessageId===payload.messageId && !message.answered)))throw new Error("Pending question from this component required");
           if(kind==="component-start"){
+            if(board.actions.some(action=>action.nodeId===node.id && action.kind===kind && ['queued','claimed','unknown'].includes(action.phase)))return board;
+            const result=board.components[node.id]?.result;
+            if(result?.nodeRevision===node.revision && result.gateDigest===board.components[node.id].gateDigest)return board;
             if(board.pauseNewStarts || board.pausedNodeIds.includes(node.id))throw new Error("Component starts are paused");
             if(!board.specApproval || board.specApproval.digest!==digestSpec(board) || board.acceptedNodeDigests[node.id]!==digestNodeInput(board,node.id))throw new Error("Approve the current component through Preview and Start");
             resolveBoardDependencies(board,node.id);
@@ -62,12 +66,12 @@ export function createCoordinatorActions(store:BoardStore,port:CoordinatorPort=c
         if(!action || action.phase!=="queued" || !isRecord(action.payload) || action.payload.delivery!=="pending")return;
         const component=componentActionKinds.includes(action.kind)?board.nodes.find(node=>node.id===action.nodeId && !node.removed):undefined;
         if(componentActionKinds.includes(action.kind) && !component?.collaborate)throw new Error("Component binding unavailable");
-        if(component && action.kind==="component-start" && (board.pauseNewStarts || board.pausedNodeIds.includes(component.id) || board.actions.some(other=>other.id!==action.id && other.nodeId===component.id && other.kind==="component-start" && other.phase==="claimed")))return;
+        if(component && action.kind==="component-start" && (board.pauseNewStarts || board.pausedNodeIds.includes(component.id) || board.actions.some(other=>other.id!==action.id && other.nodeId===component.id && other.kind==="component-start" && (other.phase==="claimed" || other.phase==="unknown" || (other.phase==="queued" && isRecord(other.payload) && other.payload.delivery!=="pending")))))return;
         const recipient=component?.collaborate?.masterIdentity??board.coordinatorIdentity;
         const member=board.members.find(member=>member.identity===recipient)!;
         await port.verify(member);
         const command=process.env.ORCA_BOARD_CLI ?? "boardctl";
-        const prompt=component?componentActionPrompt(boardId,component,action,command,process.env.ORCA_BOARD_URL??`http://127.0.0.1:${process.env.PORT??8787}`):[
+        const basePrompt=component?componentActionPrompt(boardId,component,action,command,process.env.ORCA_BOARD_URL??`http://127.0.0.1:${process.env.PORT??8787}`):[
           `Orca group board request: ${action.kind}. Board ${boardId}; action ${actionId}.`,
           `Run boardctl from this coordinator session. Inspect the board, claim this action once, then read the returned revision before publishing.`,
           `CLI: ${command}. Server: ${process.env.ORCA_BOARD_URL??`http://127.0.0.1:${process.env.PORT??8787}`}. Use its --help for typed commands.`,
@@ -81,6 +85,8 @@ export function createCoordinatorActions(store:BoardStore,port:CoordinatorPort=c
           `Never inject yourself as a worker. A coordinator handover is an explicit human decision. Preserve the user's edits; reconcile stale proposals.`,
           `User request: ${String(action.payload.body??"")}`,
         ].join("\n");
+        const runtime=process.env.ORCA_BOARD_RUNTIME??join(homedir(),".local/state/orca-board");
+        const prompt=basePrompt+`\nIf your tool shell lacks inherited Orca identity, append --terminal ${member.terminalHandle} to boardctl. For this server append --token-file ${join(runtime,`token-${process.env.PORT??8787}`)}. This handle is your own selected session; never substitute another.`;
         await changeLatest(boardId,`${actionId}-sending-${randomUUID()}`,current=>{const item=current.actions.find(item=>item.id===actionId)!;if(!isRecord(item.payload)||item.payload.delivery!=="pending")throw new Error("Action delivery already began");item.payload={...item.payload,delivery:"sending"};return current;});
         let receipt:unknown;
         try { receipt=await port.send(member,prompt); }

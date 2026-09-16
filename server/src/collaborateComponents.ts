@@ -1,3 +1,4 @@
+import { hasComponentWork } from "./componentActivity.js";
 import { readComponentEvidence, readComponentText, verifySelectionRecord } from "./componentEvidence.js";
 import { registerComponentRun, type ComponentAssociation } from "./componentRegistry.js";
 import { resolveBoardDependencies } from "./boardDependencies.js";
@@ -23,7 +24,7 @@ export interface CollaboratePorts {
   readEvidence?(path:string,manifestPath:string,manifest:Record<string,unknown>):Promise<{path:string;value:Record<string,unknown>}>;
   readText?(path:string,manifestPath:string,manifest:Record<string,unknown>):Promise<{path:string;text:string}>;
   verifySelection?(path:string):Promise<void>;
-  registerBinding?(association:ComponentAssociation):Promise<void>;
+  registerBinding?(association:ComponentAssociation,canReplace?:(previous:ComponentAssociation)=>boolean):Promise<void>;
 }
 function requiredText(value: unknown, label: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${label} required`);
@@ -228,7 +229,7 @@ export function createCollaborateComponents(store: BoardStore, ports: Collaborat
     },
     async refresh(boardId:string,nodeId:string,identity:string,actionId:string):Promise<BoardSnapshot>{
       const board=await store.read(boardId),{state}=await inspect(board,nodeId,identity);
-      await ports.registerBinding?.({boardId,nodeId,runId:state.runId,masterIdentity:identity,terminalHandle:board.members.find(member=>member.identity===identity)!.terminalHandle,manifestPath:state.manifestPath,url:process.env.ORCA_BOARD_URL??`http://127.0.0.1:${process.env.PORT??8787}`});
+      await ports.registerBinding?.({boardId,nodeId,runId:state.runId,masterIdentity:identity,terminalHandle:board.members.find(member=>member.identity===identity)!.terminalHandle,manifestPath:state.manifestPath,url:process.env.ORCA_BOARD_URL??`http://127.0.0.1:${process.env.PORT??8787}`},previous=>previous.boardId===board.id && !board.nodes.some(node=>node.id===previous.nodeId && !node.removed) && !hasComponentWork(board,previous.nodeId));
       const prior=board.components[nodeId];
       if(prior && digestComponentValue({...prior,observedAt:null})===digestComponentValue({...state,observedAt:null}))return board;
       return store.update(boardId,board.revision,actionId,current=>{current.components[nodeId]=state;return current;});

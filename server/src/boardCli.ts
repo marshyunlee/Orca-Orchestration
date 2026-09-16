@@ -15,6 +15,8 @@ function option(name:string, fallback?:string):string {
   if(fallback!==undefined)return fallback;
   throw new Error(`Missing ${name}`);
 }
+const callerHandle=option("--terminal",process.env.ORCA_TERMINAL_HANDLE??"");
+if(process.env.ORCA_TERMINAL_HANDLE && callerHandle!==process.env.ORCA_TERMINAL_HANDLE)throw new Error("Explicit caller differs from this terminal");
 const url=option("--url",process.env.ORCA_BOARD_URL??"http://127.0.0.1:8787");
 async function request<T>(path:string,body?:unknown):Promise<T>{
   const parsed=new URL(url);
@@ -27,7 +29,7 @@ async function request<T>(path:string,body?:unknown):Promise<T>{
 }
 async function selectedCaller(board:BoardSnapshot):Promise<CoordinatorCaller>{
   const member=board.members.find(member=>member.identity===board.coordinatorIdentity);
-  if(!member || member.terminalHandle!==process.env.ORCA_TERMINAL_HANDLE)throw new Error("Run boardctl inside the selected coordinator session");
+  if(!member || member.terminalHandle!==callerHandle)throw new Error("Run boardctl inside the selected coordinator session");
   const {terminal}=await runOrca<{terminal:{incarnationId:string;executionHostId:string;agentIdentity:string}}>(["terminal","show","--terminal",member.terminalHandle]);
   if(terminal.incarnationId!==member.incarnationId || terminal.executionHostId!==member.hostId || terminal.agentIdentity!==member.source)throw new Error("Coordinator binding changed");
   return {identity:member.identity,terminalHandle:member.terminalHandle,incarnationId:member.incarnationId,hostId:member.hostId};
@@ -67,16 +69,16 @@ Component result JSON: {"nodeRevision":1,"selectionPath":"/run/outcome/slice.jso
 Gate source JSON: {"kind":"chat","reference":"/work-vault/actual-user-answer.md","response":"EXACT USER APPROVAL"}. Reuse actual approval only for the matching digest.
 
 Preview proposals may include images: [{"mimeType":"image/png","base64":"...","caption":"Expected screen"}] (up to eight, 1 MB each; the full API payload is limited to 2 MB).
-Native operations run only inside the selected coordinator. Unknown receipts require reconciliation; never repeat an unknown mutation blindly.`);return;
+Use --terminal <your-own-handle> when the tool shell lacks inherited Orca identity, and --token-file <private-runtime/token-PORT> for a nondefault runtime. Verify that the selected terminal is your actual session; never borrow another session identity. Native operations run only for the selected coordinator. Unknown receipts require reconciliation; never repeat an unknown mutation blindly.`);return;
   }
   if(args[0]==="native"){
     const caller=JSON.parse(await readFile(option("--caller-file"),"utf8")) as CoordinatorCaller;
     const operation=JSON.parse(await readFile(option("--operation-file"),"utf8")) as NativeOperation;
-    const receipt=await executeNativeOperation(operation,caller);console.log(JSON.stringify(receipt));if(receipt.phase!=="applied")process.exitCode=1;return;
+    const receipt=await executeNativeOperation(operation,caller,{callerTerminal:callerHandle});console.log(JSON.stringify(receipt));if(receipt.phase!=="applied")process.exitCode=1;return;
   }
   if(args[0]==="create"){
     const inventory=await request<{members:MemberRef[]}>("/api/sessions");
-    const handle=process.env.ORCA_TERMINAL_HANDLE??"";
+    const handle=callerHandle;
     const members=resolveEntryMembers(inventory.members,JSON.parse(option("--members","[]")),handle);
     const actionId=option("--action"),body=option("--request");
     let created=await request<BoardSnapshot>("/api/boards",{title:option("--title"),members,coordinatorIdentity:members[0].identity,actionId});
@@ -89,7 +91,7 @@ Native operations run only inside the selected coordinator. Unknown receipts req
   if(args[0]==="resume"){
     const {boards}=await request<{boards:BoardSnapshot[]}>("/api/boards");
     const selected=resolveBoardEntry(boards,{id:args.includes("--board")?option("--board"):undefined,title:args.includes("--title")?option("--title"):undefined});
-    const role=resolveEntryRole(selected,process.env.ORCA_TERMINAL_HANDLE??"");
+    const role=resolveEntryRole(selected,callerHandle);
     const member=selected.members.find(member=>member.identity===role.identity)!;
     const {terminal}=await runOrca<{terminal:{incarnationId:string;executionHostId:string;agentIdentity:string}}>(["terminal","show","--terminal",member.terminalHandle]);
     if(terminal.incarnationId!==member.incarnationId || terminal.executionHostId!==member.hostId || terminal.agentIdentity!==member.source)throw new Error("Session binding changed; reselect it before resuming");
@@ -99,12 +101,12 @@ Native operations run only inside the selected coordinator. Unknown receipts req
   const board=await request<BoardSnapshot>(`/api/boards/${encodeURIComponent(id)}`);
   if(args[0]==="read"){console.log(JSON.stringify(board,null,2));return;}
   if(args[0]==="attest-stop"){
-    const member=board.members.find(member=>member.terminalHandle===process.env.ORCA_TERMINAL_HANDLE);
+    const member=board.members.find(member=>member.terminalHandle===callerHandle);
     if(!member)throw new Error("Run stop acknowledgment from the assigned member session");
     console.log(JSON.stringify(await request(`/api/boards/${id}/member/stopped`,{identity:member.identity,attemptId:option("--attempt"),evidence:option("--evidence")})));return;
   }
   if(args[0]==="component-refresh" || args[0]==="component-approve" || args[0]==="component-result" || args[0]==="component-claim" || args[0]==="component-finish"){
-    const role=resolveEntryRole(board,process.env.ORCA_TERMINAL_HANDLE??"");
+    const role=resolveEntryRole(board,callerHandle);
     const nodeId=option("--node");
     const operation=args[0].slice("component-".length);
     const data:Record<string,unknown>={identity:role.identity,actionId:option("--action")};
@@ -139,13 +141,13 @@ Native operations run only inside the selected coordinator. Unknown receipts req
     }
     if(!token || !data.operation)throw new Error("No admitted native operation; inspect delivery or group state before retrying");
     if(!action.requestId)throw new Error("No request ID was received. Inspect the exact frozen Run/task/dispatch in native state; the board will not blindly resend");
-    const inspection=await executeNativeOperation({kind:"inspect-request",requestId:action.requestId},caller);
+    const inspection=await executeNativeOperation({kind:"inspect-request",requestId:action.requestId},caller,{callerTerminal:callerHandle});
     if(inspection.phase!=="applied")throw new Error("Native request inspection failed; outcome remains unknown");
     const inspected=(inspection.raw as {result?:{state?:string;receipt?:unknown}}).result;
     if(!inspected || !["completed","pending"].includes(inspected.state??""))throw new Error(`Native request is ${inspected?.state??"unverifiable"}; inspect affected native state before retrying`);
     const receipt=inspected.state==="completed" && inspected.receipt
       ? normalizeNativeReceipt({ok:true,result:inspected.receipt})
-      : await executeNativeOperation(data.operation as NativeOperation,caller,{retryRequest:action.requestId});
+      : await executeNativeOperation(data.operation as NativeOperation,caller,{retryRequest:action.requestId,callerTerminal:callerHandle});
     const endpoint=action.kind==="launch"?"receipt":"action-receipt";
     console.log(JSON.stringify(await request(`/api/boards/${id}/coordinator/${endpoint}`,{identity:caller.identity,actionId:action.id,token,receipt})));return;
   }
@@ -167,7 +169,7 @@ Native operations run only inside the selected coordinator. Unknown receipts req
     }
     const prepared=await request<{operation:NativeOperation|null;token:string|null;waiting?:string}>(`/api/boards/${id}/coordinator/action-operation`,{identity:caller.identity,actionId:action.id});
     if(!prepared.operation){console.log(JSON.stringify(prepared));return;}
-    const receipt=await executeNativeOperation(prepared.operation,caller);
+    const receipt=await executeNativeOperation(prepared.operation,caller,{callerTerminal:callerHandle});
     console.log(JSON.stringify(await request(`/api/boards/${id}/coordinator/action-receipt`,{identity:caller.identity,actionId:action.id,token:prepared.token,receipt})));
     if(receipt.phase!=="applied")process.exitCode=1;
     return;
@@ -182,7 +184,7 @@ Native operations run only inside the selected coordinator. Unknown receipts req
     if(!permit.caller || permit.caller.identity!==caller.identity || permit.caller.incarnationId!==caller.incarnationId)throw new Error("Launch belongs to a different coordinator incarnation");
     for(let step=0;step<2;step++){
       const operation=await request<{operation:NativeOperation;token:string}>(`/api/boards/${id}/coordinator/operation`,{identity:caller.identity,actionId});
-      const receipt=await executeNativeOperation(operation.operation,caller);
+      const receipt=await executeNativeOperation(operation.operation,caller,{callerTerminal:callerHandle});
       const updated=await request<BoardSnapshot>(`/api/boards/${id}/coordinator/receipt`,{identity:caller.identity,actionId,token:operation.token,receipt});
       console.log(JSON.stringify({actionId,operation:operation.operation.kind,receipt,attempt:updated.attempts.find(attempt=>attempt.id===permit.attemptId)}));
       if(receipt.phase!=="applied"){process.exitCode=1;return;}

@@ -24,18 +24,22 @@ from concurrent.futures import ThreadPoolExecutor
 spec=importlib.util.spec_from_file_location('board_session_resolver',sys.argv[1])
 helper=importlib.util.module_from_spec(spec);spec.loader.exec_module(helper)
 options=json.loads(sys.argv[2])
-inventory=helper.read_orca_result(['terminal','list','--include-visual-layouts'])
-if inventory.get('truncated') or inventory.get('hostScope',{}).get('omittedHostIds'): raise ValueError('Session inventory is incomplete')
-terminals={terminal['handle']:terminal for terminal in inventory.get('terminals',[])}
-rows=[]
-for layout in inventory.get('visualLayouts',[]):
- for tab in helper.collect_tab_bindings(layout):
-  for handle in dict.fromkeys(helper.collect_terminal_handles(tab['panes'])):
-   terminal=terminals.get(handle,{})
-   if terminal.get('agentIdentity') not in ('codex','claude','cursor'): continue
-   if options.get('handle') and handle != options['handle']: continue
-   if options.get('names') and tab.get('title','').casefold() not in [name.casefold() for name in options['names']]: continue
-   rows.append({'tab_name':tab.get('title',''),'tab_id':tab['tabId'],'terminal_handle':handle,'source':terminal.get('agentIdentity'),'worktree_path':layout.get('worktreePath','')})
+if options.get('handle'):
+ terminal=helper.read_orca_result(['terminal','show','--terminal',options['handle']])['terminal']
+ terminals={terminal['handle']:terminal}
+ rows=[{'tab_name':terminal.get('title',''),'tab_id':terminal['tabId'],'terminal_handle':terminal['handle'],'source':terminal.get('agentIdentity'),'worktree_path':terminal['worktreePath']}]
+else:
+ inventory=helper.read_orca_result(['terminal','list','--include-visual-layouts'])
+ if inventory.get('truncated') or inventory.get('hostScope',{}).get('omittedHostIds'): raise ValueError('Session inventory is incomplete')
+ terminals={terminal['handle']:terminal for terminal in inventory.get('terminals',[])}
+ rows=[]
+ for layout in inventory.get('visualLayouts',[]):
+  for tab in helper.collect_tab_bindings(layout):
+   for handle in dict.fromkeys(helper.collect_terminal_handles(tab['panes'])):
+    terminal=terminals.get(handle,{})
+    if terminal.get('agentIdentity') not in ('codex','claude','cursor'): continue
+    if options.get('names') and tab.get('title','').casefold() not in [name.casefold() for name in options['names']]: continue
+    rows.append({'tab_name':tab.get('title',''),'tab_id':tab['tabId'],'terminal_handle':handle,'source':terminal.get('agentIdentity'),'worktree_path':layout.get('worktreePath','')})
 with ThreadPoolExecutor(max_workers=min(len(rows),8) or 1) as pool:
  bindings=list(pool.map(helper.read_bound_session,rows))
 for row,binding in zip(rows,bindings): row.update(binding)
