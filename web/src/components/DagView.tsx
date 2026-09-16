@@ -679,9 +679,9 @@ function BoardFlow({board,selectedId,onSelect,onEdit}:{board:BoardSnapshot;selec
       return {...retained,id:node.id,type:"task",position:dragged.current.get(node.id)??(dragging.current===node.id && retained?retained.position:node.position),
         ariaLabel:`${node.kind}: ${node.title}`,deletable:node.kind==="task",data:{label:node.title,status,kind:node.kind,statusLabel:node.kind==="run"?(board.specApproval?"Spec approved":"Spec draft"):node.kind==="preview"?(board.preview?.current?"Ready to review":"Out of date"):undefined,selected:selectedId===node.id,dir:"LR",index,tilt:0,pop:false}};
     }));
-    setEdges(board.edges.map(edge=>({...edge,type:"pencil"})));
+    setEdges(previous=>board.edges.map(edge=>({...previous.find(item=>item.id===edge.id),...edge,type:"pencil"})));
   },[board,selectedId,setNodes,setEdges]);
-  return <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
+  return <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} deleteKeyCode={["Backspace","Delete"]}
     onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} fitView minZoom={0.2}
     onNodeClick={(_,node)=>onSelect(node.id)} onPaneClick={()=>onSelect(null)}
     onNodeDragStart={(_,node)=>{dragging.current=node.id;}}
