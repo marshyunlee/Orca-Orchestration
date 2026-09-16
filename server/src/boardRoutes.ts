@@ -170,6 +170,13 @@ export function createBoardRouter(store: BoardStore, token: string): Router {
     try {
       if (!isRecord(request.body) || !Number.isInteger(request.body.baseRevision)) throw new Error("Base revision required");
       const {baseRevision,actionId,operation}=request.body;
+      if(isRecord(operation) && operation.kind==='reconcile'){
+        const current=await store.read(String(request.params.id));const target=current.actions.find(action=>action.id===operation.targetActionId);
+        if(target?.kind==='import-control' && target.nodeId){
+          const saved=await imports.queue(current.id,baseRevision as number,String(actionId),target.nodeId,'reconcile',`Inspect original owner action ${target.id}. Use owner-reconcile --action ${target.id} --evidence <verified effects> without replaying it, then finish this reconciliation request.`);
+          response.json(saved);void coordinator.deliver(saved.id,String(actionId)).catch(()=>{});return;
+        }
+      }
       if(isRecord(operation) && operation.kind==='import-control'){
         const saved=await imports.queue(String(request.params.id),baseRevision as number,String(actionId),String(operation.nodeId),String(operation.control),String(operation.body??''),typeof operation.messageId==='string'?operation.messageId:undefined);response.json(saved);void coordinator.deliver(saved.id,String(actionId)).catch(()=>{});return;
       }
