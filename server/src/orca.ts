@@ -12,6 +12,7 @@ export interface CoordinatorCaller {
 
 export type NativeOperation =
   | { kind: "create-run"; objective: string }
+  | { kind: "bind-run"; runId: string }
   | { kind: "create-task"; runId: string; title: string; spec: string; dependencies: string[] }
   | { kind: "start-worker"; taskId: string; runId: string; assignment:
       | { kind: "member"; terminalHandle: string; workspacePath: string }
@@ -38,6 +39,7 @@ function buildNativeArguments(operation: NativeOperation, caller: CoordinatorCal
   let args: string[];
   switch (operation.kind) {
     case "create-run": args = ["run-create", "--objective", operation.objective, ...from]; break;
+    case "bind-run": args = ["run-use", "--id", operation.runId, ...from]; break;
     case "create-task": args = ["task-create", "--spec", operation.spec, "--task-title", operation.title, "--deps", JSON.stringify(operation.dependencies), "--run", operation.runId, ...from]; break;
     case "start-worker": {
       const assignment = operation.assignment;
@@ -97,13 +99,13 @@ export async function executeNativeOperation(
   const result = raw?.result ?? {};
   const stringOrNull = (value: unknown): string | null => typeof value === "string" ? value : null;
   return {
-    phase: raw?.ok === true ? "applied" : raw?.ok === false ? "failed" : "unknown",
+    phase: result.state === "outcome_unknown" ? "unknown" : raw?.ok === true ? "applied" : raw?.ok === false ? "failed" : "unknown",
     requestId: stringOrNull(result.mutation?.requestId ?? result.requestId ?? result.request_id ?? raw?.error?.data?.requestId),
     stage: stringOrNull(result.stage ?? result.failedStage),
-    runId: stringOrNull(result.runId ?? result.run?.id),
-    taskId: stringOrNull(result.taskId ?? result.task?.id),
+    runId: stringOrNull(result.runId ?? result.run?.id ?? result.task?.run_id ?? result.dispatch?.run_id),
+    taskId: stringOrNull(result.taskId ?? result.task?.id ?? result.dispatch?.task_id),
     dispatchId: stringOrNull(result.dispatchId ?? result.dispatch?.id),
-    liveness: stringOrNull(result.liveness ?? result.projection?.liveness?.status),
+    liveness: stringOrNull(result.liveness ?? result.projection?.liveness?.verdict),
     raw: raw ?? stdout,
     error: raw?.ok === false ? String(raw.error?.message ?? failure ?? "Native operation failed") : failure,
   };

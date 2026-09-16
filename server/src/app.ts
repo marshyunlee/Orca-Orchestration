@@ -1,4 +1,5 @@
 import express from "express";
+import { discoverGroupSessions } from "./sessionDiscovery.js";
 import { localOrigin, requireToken } from "./localAuth.js";
 import { createBoardRouter } from "./boardRoutes.js";
 import type { BoardStore } from "./boardStore.js";
@@ -44,6 +45,8 @@ export function createViewerApp(workspaceDir: string, boards?: {store: BoardStor
     response.json(await loadConfig(workspaceDir));
   });
   if (boards) {
+    app.get("/api/integrations",requireToken(boards.token),(_request,response)=>response.json({boardRoot:boards.store.root,groupHelper:process.env.ORCA_GROUP_HELPER??null,sessionResolver:process.env.ORCA_WORK_CONTEXT_HELPER??null}));
+    app.get("/api/sessions",requireToken(boards.token),async (_request,response)=>{try{response.json(await discoverGroupSessions());}catch(error){response.status(503).json({error:String(error)});}});
     app.get("/api/auth", (_request,response)=>response.json({token:boards.token}));
     app.use("/api/boards",createBoardRouter(boards.store,boards.token));
     app.use("/api/config", (request,response,next)=> request.method === "GET" ? next() : requireToken(boards.token)(request,response,next));

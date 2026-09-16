@@ -1865,3 +1865,11 @@ body {
 .board-app .member-option { flex-direction:row; align-items:center; }
 .member-option small { display:block; color:var(--ink-soft); }
 .unavailable-member { font-size:12px; color:var(--ink-soft); }
+.board-action-history { padding:6px 20px; font-size:12px; max-height:180px; overflow:auto; }
+.board-action-history article { padding:7px; border-bottom:1px solid var(--line); }
+.execution-controls { border-top:1px solid var(--line); margin-top:18px; padding-top:8px; }
+.implementation-editor { border-top:1px solid var(--line); margin-top:16px; padding-top:8px; }
+.implementation-editor .code-editor { font:12px/1.6 ui-monospace,monospace; min-height:280px; white-space:pre; }
+.workspace-path { font:11px monospace; overflow-wrap:anywhere; }
+.board-app .delete-file { flex-direction:row; align-items:center; margin-top:8px; }
+.delivery-history { position:fixed; inset:5vh 8vw; z-index:80; background:var(--paper); border:2px solid var(--line-strong); border-radius:12px; box-shadow:0 0 0 100vmax #0004; overflow:auto; padding:24px; }

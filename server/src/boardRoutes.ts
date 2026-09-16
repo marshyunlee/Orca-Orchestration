@@ -1,8 +1,15 @@
+import {createMembershipActions} from "./membershipActions.js";
+import {createWorkspaceRouter} from "./workspaceRoutes.js";
 import { Router, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
-import { createBoardNode, isRecord, validateContent, validateAssignment, type BoardSnapshot, type BoardEdit } from "../../shared/board.js";
+import { createBoardNode, isRecord, validateContent, validateAssignment, validateMembers, type BoardSnapshot, type BoardEdit } from "../../shared/board.js";
 import { BoardConflict, type BoardStore } from "./boardStore.js";
 import { findDownstream, digestSpec } from "./boardGraph.js";
+import { createActionExecutor } from "./interventions.js";
+import { createExecutionBridge, hasActiveWriter } from "./executionBridge.js";
+import { createCoordinatorActions, type CoordinatorProposal } from "./coordinatorActions.js";
+import { digestExecutableBoard } from "./boardGraph.js";
+import { verifyGroupMember } from "./sessionDiscovery.js";
 import { requireToken } from "./localAuth.js";
 
 export function applyBoardEdit(board: BoardSnapshot, operation: BoardEdit): BoardSnapshot {
@@ -30,7 +37,7 @@ export function applyBoardEdit(board: BoardSnapshot, operation: BoardEdit): Boar
       if (JSON.stringify([target!.title,target!.content,target!.assignment]) === JSON.stringify([operation.title,operation.content,operation.assignment])) return board;
       target!.title=operation.title; target!.content=operation.content; target!.assignment=operation.assignment; target!.revision++;
       if (target!.kind === "run") board.specApproval=null;
-      if (board.attempts.some(attempt=>attempt.nodeId===target!.id && ["admitted","ready","dispatched","unknown"].includes(attempt.nativeStatus))) {
+      if (board.attempts.some(attempt=>attempt.nodeId===target!.id && hasActiveWriter(attempt))) {
         board.pausedNodeIds=[...new Set([...board.pausedNodeIds,...findDownstream(target!.id,board.edges)])];
       }
       return board;
@@ -45,10 +52,18 @@ export function applyBoardEdit(board: BoardSnapshot, operation: BoardEdit): Boar
     }
     case "remove-node":
       if (target!.kind!=="task") throw new Error("Only task nodes can be removed");
-      if (board.attempts.some(attempt=>attempt.nodeId===target!.id && ["admitted","ready","dispatched","unknown"].includes(attempt.nativeStatus))) throw new Error("Stop active work before removing this task");
+      if (board.attempts.some(attempt=>attempt.nodeId===target!.id && hasActiveWriter(attempt))) throw new Error("Stop active work before removing this task");
       board.pausedNodeIds=[...new Set([...board.pausedNodeIds,...findDownstream(target!.id,board.edges)])];
       target!.removed=true;
       board.edges=board.edges.filter(edge=>edge.source!==target!.id && edge.target!==target!.id); return board;
+    case "members": {
+      validateMembers(operation.members);
+      if (!operation.members.some(member=>member.identity===operation.coordinatorIdentity)) throw new Error("Coordinator must be a member");
+      const changed=board.members.filter(member=>!operation.members.some(candidate=>candidate.identity===member.identity && candidate.terminalHandle===member.terminalHandle && candidate.incarnationId===member.incarnationId));
+      if (board.attempts.some(attempt=>changed.some(member=>member.terminalHandle===attempt.assigneeHandle) && hasActiveWriter(attempt))) throw new Error("Settle outstanding work before removing or rebinding its member");
+      if (board.discussionGroupId) throw new Error("Membership must be reconciled by the group coordinator");
+      board.members=operation.members;board.coordinatorIdentity=operation.coordinatorIdentity;return board;
+    }
     case "approve-spec": {
       const root=board.nodes.find(node=>node.kind==="run")!;
       if (!root.content.design.trim()) throw new Error("A specification is required before approval");
@@ -74,9 +89,14 @@ export function sendBoardError(response: Response, error: unknown): void {
 }
 export function createBoardRouter(store: BoardStore, token: string): Router {
   const router=Router();
+  const coordinator=createCoordinatorActions(store);
+  const bridge=createExecutionBridge(store);
+  const executor=createActionExecutor(store);
+  const membership=createMembershipActions(store);
   router.get("/",async (_request,response)=>{try{response.json({boards:await store.list()});}catch(error){sendBoardError(response,error);}});
-  router.get("/:id",async (request,response)=>{try{response.json(await store.read(request.params.id));}catch(error){sendBoardError(response,error);}});
+  router.get("/:id",async (request,response)=>{try{const board=await store.read(request.params.id);response.json({...board,digests:{spec:digestSpec(board),graph:digestExecutableBoard(board)}});}catch(error){sendBoardError(response,error);}});
   router.use(requireToken(token));
+  router.use("/:id/files",createWorkspaceRouter(store));
   router.post("/",async (request,response)=>{
     try { response.json(await store.create(request.body,request.body.actionId)); } catch(error){sendBoardError(response,error);}
   });
@@ -84,8 +104,89 @@ export function createBoardRouter(store: BoardStore, token: string): Router {
     try {
       if (!isRecord(request.body) || !Number.isInteger(request.body.baseRevision)) throw new Error("Base revision required");
       const {baseRevision,actionId,operation}=request.body;
+      if(isRecord(operation) && operation.kind==="new-delivery"){
+        const current=await store.read(String(request.params.id));
+        if(current.attempts.some(hasActiveWriter) || current.actions.some(action=>["claimed","unknown"].includes(action.phase)))throw new Error("Reconcile active work before starting a new increment");
+        const path=await store.artifact(current.id,`delivery-${randomUUID()}`,JSON.stringify(current));
+        response.json(await store.update(current.id,baseRevision as number,actionId as string,board=>{
+          board.history.push({deliveryId:board.deliveryId,snapshotPath:path});board.deliveryId=`delivery_${randomUUID()}`;
+          board.nodes=board.nodes.filter(node=>node.kind==="run");board.edges=[];board.attempts=[];board.actions=[];board.preview=null;board.pausedNodeIds=[];board.pauseNewStarts=true;board.acceptedGraphDigest=null;board.acceptedNodeDigests={};board.implementationRunId=null;return board;
+        }));return;
+      }
+      if (isRecord(operation) && ["discuss","generate-tasks","review-graph","answer-question","start","resume","guidance","stop-rerun"].includes(String(operation.kind))) {
+        const saved=await coordinator.queue(String(request.params.id),baseRevision as number,actionId as string,String(operation.kind),String(operation.body??""),operation);
+        response.json(saved);
+        void coordinator.deliver(saved.id,actionId as string).catch(()=>{});
+        return;
+      }
+      if (isRecord(operation) && operation.kind === "members") {
+        validateMembers(operation.members);
+        operation.members=await Promise.all(operation.members.map(verifyGroupMember));
+        const current=await store.read(String(request.params.id));
+        if(current.discussionGroupId){
+          const saved=await coordinator.queue(current.id,baseRevision as number,actionId as string,"members","Update the selected group sessions and coordinator.",operation);
+          response.json(saved);void coordinator.deliver(saved.id,actionId as string).catch(()=>{});return;
+        }
+      }
       response.json(await store.update(String(request.params.id),baseRevision as number,actionId as string,board=>applyBoardEdit(board,operation as BoardEdit)));
     } catch(error){sendBoardError(response,error);}
+  });
+  router.post("/:id/coordinator/launch",async(request,response)=>{
+    try{
+      const board=await store.read(request.params.id);
+      if(request.body.identity!==board.coordinatorIdentity)throw new Error("Selected coordinator required");
+      await verifyGroupMember(board.members.find(member=>member.identity===board.coordinatorIdentity)!);
+      response.json(await bridge.admitLaunch(board.id,request.body.nodeId,request.body.nodeRevision,request.body.actionId));
+    }catch(error){sendBoardError(response,error);}
+  });
+  router.post("/:id/coordinator/operation",async(request,response)=>{
+    try{
+      const board=await store.read(request.params.id);
+      if(request.body.identity!==board.coordinatorIdentity)throw new Error("Selected coordinator required");
+      response.json(await bridge.beginOperation(board.id,request.body.actionId));
+    }catch(error){sendBoardError(response,error);}
+  });
+  router.post("/:id/coordinator/receipt",async(request,response)=>{
+    try{
+      const board=await store.read(request.params.id);
+      if(request.body.identity!==board.coordinatorIdentity)throw new Error("Selected coordinator required");
+      response.json(await bridge.recordNativeReceipt(board.id,request.body.actionId,request.body.token,request.body.receipt));
+    }catch(error){sendBoardError(response,error);}
+  });
+  router.post("/:id/coordinator/action-operation",async(request,response)=>{
+    try{response.json(await executor.begin(request.params.id,request.body.actionId,request.body.identity));}catch(error){sendBoardError(response,error);}
+  });
+  router.post("/:id/coordinator/action-receipt",async(request,response)=>{
+    try{
+      const board=await store.read(request.params.id);
+      if(request.body.identity!==board.coordinatorIdentity)throw new Error("Selected coordinator required");
+      response.json(await executor.finish(board.id,request.body.actionId,request.body.token,request.body.receipt));
+    }catch(error){sendBoardError(response,error);}
+  });
+  router.post("/:id/member/stopped",async(request,response)=>{
+    try{
+      const board=await store.read(request.params.id);
+      const member=board.members.find(member=>member.identity===request.body.identity);
+      if(!member)throw new Error("Member binding required");await verifyGroupMember(member);
+      response.json(await executor.attestStopped(board.id,request.body.attemptId,member.identity,request.body.evidence));
+    }catch(error){sendBoardError(response,error);}
+  });
+  router.post("/:id/coordinator/membership-operation",async(request,response)=>{try{response.json(await membership.begin(request.params.id,request.body.actionId,request.body.identity));}catch(error){sendBoardError(response,error);}});
+  router.post("/:id/coordinator/membership-receipt",async(request,response)=>{try{response.json(await membership.finish(request.params.id,request.body.actionId,request.body.identity,request.body.token,request.body.receipt));}catch(error){sendBoardError(response,error);}});
+  router.post("/:id/coordinator/claim",async(request,response)=>{
+    try{response.json(await coordinator.claim(request.params.id,request.body.actionId,request.body.identity));}catch(error){sendBoardError(response,error);}
+  });
+  router.post("/:id/coordinator/publish",async(request,response)=>{
+    try{response.json(await coordinator.publish(request.params.id,request.body.baseRevision,request.body.actionId,request.body.identity,request.body.proposal as CoordinatorProposal));}catch(error){sendBoardError(response,error);}
+  });
+  router.post("/:id/coordinator/group",async(request,response)=>{
+    try{
+      const board=await store.read(request.params.id);
+      if(request.body.identity!==board.coordinatorIdentity)throw new Error("Selected coordinator required");
+      await verifyGroupMember(board.members.find(member=>member.identity===board.coordinatorIdentity)!);
+      if(typeof request.body.groupId!=="string" || !/^[a-zA-Z0-9-]+$/.test(request.body.groupId))throw new Error("Invalid group ID");
+      response.json(await store.update(board.id,request.body.baseRevision,request.body.actionId,current=>{if(current.discussionGroupId && current.discussionGroupId!==request.body.groupId)throw new Error("Group already initialized");current.discussionGroupId=request.body.groupId;return current;}));
+    }catch(error){sendBoardError(response,error);}
   });
   router.get("/:id/artifacts/:name",async(request,response)=>{
     try { response.type("text/plain").send(await store.readArtifact(request.params.id,request.params.name)); } catch(error){sendBoardError(response,error);}

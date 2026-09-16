@@ -6,7 +6,7 @@ export function validateGraph(nodes: BoardNode[], edges: BoardEdge[]): void {
   if (!Array.isArray(nodes) || !Array.isArray(edges)) throw new Error("Invalid graph");
   const ids = new Set<string>();
   for (const node of nodes) {
-    if (!node || typeof node.id !== "string" || !node.id || ids.has(node.id)) throw new Error("Invalid or duplicate node ID");
+    if (!node || typeof node.id !== "string" || !/^[A-Za-z0-9_-]{1,160}$/.test(node.id) || ids.has(node.id)) throw new Error("Invalid or duplicate node ID");
     ids.add(node.id);
     if (!["run", "task", "preview"].includes(node.kind) || typeof node.title !== "string" || typeof node.removed !== "boolean" || !Number.isInteger(node.revision) || node.revision < 1) throw new Error("Invalid node");
     if (!Number.isFinite(node.position?.x) || !Number.isFinite(node.position?.y)) throw new Error("Invalid position");
@@ -49,4 +49,9 @@ export function digestExecutableBoard(board: BoardSnapshot): string {
   const ids = new Set(nodes.map(node => node.id));
   const edges = board.edges.filter(edge => ids.has(edge.source) && ids.has(edge.target)).map(({source,target})=>({source,target})).sort((a,b)=>`${a.source}/${a.target}`.localeCompare(`${b.source}/${b.target}`));
   return digestValue({nodes, edges});
+}
+
+export function digestNodeInput(board: BoardSnapshot, nodeId: string): string {
+  const node=board.nodes.find(node=>node.id===nodeId)!;
+  return digestValue({id:node.id,title:node.title,content:node.content,assignment:node.assignment,dependencies:board.edges.filter(edge=>edge.target===nodeId).map(edge=>edge.source).sort()});
 }

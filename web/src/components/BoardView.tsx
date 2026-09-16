@@ -1,8 +1,11 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import type { BoardSnapshot, BoardEdit, NodeContent, Assignment } from "../../../shared/board.js";
-import { boardRequest } from "../api.js";
+import { boardRequest,fetchBoardArtifact } from "../api.js";
 import { createBoardViewState, reduceBoardView } from "../boardState.js";
+import {ImplementationEditor} from "./ImplementationEditor.js";
+import { ExecutionControls } from "./ExecutionControls.js";
 import { GroupMembers } from "./GroupMembers.js";
+import {AttemptHistory} from "./AttemptHistory.js";
 import { GroupTabs } from "./GroupTabs.js";
 import { BoardCanvas } from "./DagView.js";
 import { TaskInspector } from "./TaskInspector.js";
@@ -20,6 +23,7 @@ export function BoardView({onHistory}:{onHistory:()=>void}) {
   const [newGroup,setNewGroup]=useState(false),[title,setTitle]=useState("");
   const [connectionError,setConnectionError]=useState("");
   const [busy,setBusy]=useState(false);
+  const [historical,setHistorical]=useState<BoardSnapshot|null>(null);
   const board=state.selectedBoardId?state.snapshotsById[state.selectedBoardId]:null;
   const node=board?.nodes.find(node=>node.id===state.selectedNodeId && !node.removed)??board?.nodes.find(node=>node.kind==="run");
   useEffect(()=>{localStorage.setItem("orca-board-drafts",JSON.stringify({drafts:state.drafts,draftRevisions:state.draftRevisions}));},[state.drafts,state.draftRevisions]);
@@ -66,14 +70,17 @@ export function BoardView({onHistory}:{onHistory:()=>void}) {
     }catch(error){setConnectionError(String(error));}finally{setBusy(false);}
   }
   return <main className="board-app">
+    {historical && <section className="delivery-history" role="dialog" aria-label="Past delivery"><button onClick={()=>setHistorical(null)}>Close history</button><h2>{historical.title} · past delivery</h2><p>Recorded revision {historical.revision}. Historical contents are read-only.</p>{historical.nodes.map(item=><details key={item.id}><summary>{item.kind} · {item.title}</summary><pre className="preserve-lines">{Object.entries(item.content).map(([key,value])=>`${key}:\n${value}`).join("\n\n")}</pre></details>)}<AttemptHistory boardId={historical.id} attempts={historical.attempts}/></section>}
+
     <GroupTabs boards={Object.values(state.snapshotsById)} selectedId={state.selectedBoardId} onSelect={boardId=>dispatch({type:"select",boardId})} onCreate={()=>setNewGroup(true)} onHistory={onHistory}/>
     {newGroup && <form className="new-group" onSubmit={event=>{event.preventDefault();void createGroup();}}><label>Group name<input autoFocus value={title} onChange={event=>setTitle(event.target.value)}/></label><button disabled={busy || !title.trim()}>Create group</button><button type="button" onClick={()=>setNewGroup(false)}>Cancel</button></form>}
     {connectionError && <p role="alert" className="board-error">{connectionError}</p>}
-    {board?<><header className="board-header"><h2>{board.title}</h2><span>{board.specApproval?"Spec approved":"Spec draft"} · Revision {board.revision}</span><span>{board.members.length} sessions</span></header>
-      <GroupMembers key={board.id} board={board} onEdit={operation=>void edit(operation)}/><div className="board-toolbar"><button disabled={busy} onClick={()=>void edit({kind:"add-task",title:"New task"})}>+ Add task</button><button disabled={busy} onClick={()=>void edit({kind:"review-graph",body:""})}>Review graph / Update preview</button><button disabled={busy || !board.preview} onClick={()=>void edit({kind:"start"})}>Start</button><button disabled={busy} onClick={()=>void edit({kind:board.pauseNewStarts?"resume":"pause"})}>{board.pauseNewStarts?"Resume":"Pause new starts"}</button>{busy && <span>Saving…</span>}</div>
+    {board?<><header className="board-header"><h2>{board.title}</h2><span>{board.specApproval?"Spec approved":"Spec draft"} · Revision {board.revision}{board.preview && !board.preview.current?" · Preview out of date":""}</span><span>{board.members.length} sessions</span><button disabled={busy} onClick={()=>void edit({kind:"new-delivery"})}>New increment</button>{board.history.length>0 && <select aria-label="Delivery history" value="" onChange={event=>{if(event.target.value)void fetchBoardArtifact(board.id,event.target.value).then(text=>setHistorical(JSON.parse(text))).catch(error=>setConnectionError(String(error)));}}><option value="">Past deliveries</option>{board.history.map((item,index)=><option key={item.deliveryId} value={item.snapshotPath}>Delivery {index+1}</option>)}</select>}</header>
+      <GroupMembers key={board.id} board={board} onEdit={operation=>void edit(operation)}/><div className="board-toolbar"><button disabled={busy} onClick={()=>void edit({kind:"add-task",title:"New task"})}>+ Add task</button><button disabled={busy} onClick={()=>void edit({kind:"review-graph",body:""})}>Review graph / Update preview</button><button disabled={busy || !board.preview?.current} onClick={()=>void edit({kind:"start"})}>Start</button><button disabled={busy} onClick={()=>void edit({kind:board.pauseNewStarts?"resume":"pause"})}>{board.pauseNewStarts?"Resume":"Pause new starts"}</button>{busy && <span>Saving…</span>}</div>
       {state.errors[board.id] && <p role="alert" className="board-error">{state.errors[board.id]}</p>}
-      <div className="board-workspace"><div className="board-canvas"><BoardCanvas key={board.id} board={board} selectedId={node?.id??null} onSelect={nodeId=>dispatch({type:"select-node",nodeId})} onEdit={operation=>void edit(operation)}/></div>
-        {node && <aside className="board-inspector">{node.kind==="preview"?<PreviewPanel node={node} onUpdate={()=>void edit({kind:"review-graph",body:""})}/>:<><TaskInspector board={board} node={node} drafts={state.drafts} onDraft={(section,value)=>dispatch({type:"edit-draft",boardId:board.id,nodeId:node.id,section,value})} onSave={saveNode} onDiscard={()=>dispatch({type:"discard-drafts",boardId:board.id,nodeId:node.id})} error={state.errors[board.id]}/>{node.kind==="run" && <RunPanel key={board.id} board={board} onEdit={operation=>void edit(operation)}/>}</>}</aside>}
+      <details className="board-action-history"><summary>Actions · {board.actions.filter(action=>action.phase!=="applied").length} pending or needing attention</summary>{board.actions.map(action=><article key={action.id}><strong>{action.kind}</strong> · {action.phase}{action.requestId && <small> · {action.requestId}</small>}{action.error && <p role="alert">{action.error}</p>}</article>)}</details><div className="board-workspace"><div className="board-canvas"><BoardCanvas key={board.id} board={board} selectedId={node?.id??null} onSelect={nodeId=>dispatch({type:"select-node",nodeId})} onEdit={operation=>void edit(operation)}/></div>
+        {node && <aside className="board-inspector">{node.kind==="preview"?<PreviewPanel node={node} onUpdate={()=>void edit({kind:"review-graph",body:""})}/>:<><TaskInspector implementation={node.kind==="task"?<ImplementationEditor key={`${board.id}/${node.id}`} board={board} node={node} onSnapshot={snapshot=>dispatch({type:"save-succeeded",boardId:board.id,snapshot,savedDrafts:{}})} onEdit={operation=>void edit(operation)}/>:undefined} board={board} node={node} drafts={state.drafts} onDraft={(section,value)=>dispatch({type:"edit-draft",boardId:board.id,nodeId:node.id,section,value})} onReconcile={()=>dispatch({type:"reconcile-draft",boardId:board.id,nodeId:node.id,revision:node.revision})} onSave={saveNode} onDiscard={()=>dispatch({type:"discard-drafts",boardId:board.id,nodeId:node.id})} error={state.errors[board.id]}/>{node.kind==="task" && <ExecutionControls board={board} node={node} onEdit={operation=>void edit(operation)}/>}
+{node.kind==="run" && <RunPanel key={board.id} board={board} onEdit={operation=>void edit(operation)}/>}</>}</aside>}
       </div></>:<section className="board-empty"><h1>Your group workspace</h1><p>Create a group to begin with an editable Run, then develop its specification and task graph.</p><button onClick={()=>setNewGroup(true)}>+ New group</button></section>}
   </main>;
 }

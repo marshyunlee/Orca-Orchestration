@@ -11,6 +11,7 @@ export type BoardViewEvent =
   | { type:"load-started"; boardId:string; requestSequence:number }
   | { type:"load-succeeded"; boardId:string; requestSequence:number; snapshot:BoardSnapshot }
   | { type:"edit-draft"; boardId:string; nodeId:string; section:string; value:string }
+  | { type:"reconcile-draft"; boardId:string; nodeId:string; revision:number }
   | { type:"discard-drafts"; boardId:string; nodeId:string }
   | { type:"save-succeeded"; boardId:string; snapshot:BoardSnapshot; savedDrafts:Record<string,string> }
   | { type:"save-conflicted"; boardId:string; error:string };
@@ -30,6 +31,7 @@ export function reduceBoardView(state:BoardViewState,event:BoardViewEvent): Boar
       const key=`${event.boardId}/${event.nodeId}`;
       return {...state,drafts:{...state.drafts,[`${key}/${event.section}`]:event.value},draftRevisions:{...state.draftRevisions,[key]:state.draftRevisions[key]??state.snapshotsById[event.boardId]?.nodes.find(node=>node.id===event.nodeId)?.revision??1}};
     }
+    case "reconcile-draft": return {...state,draftRevisions:{...state.draftRevisions,[`${event.boardId}/${event.nodeId}`]:event.revision},errors:{...state.errors,[event.boardId]:""}};
     case "discard-drafts": {
       const drafts={...state.drafts},draftRevisions={...state.draftRevisions};
       for(const key of Object.keys(drafts)) if(key.startsWith(`${event.boardId}/${event.nodeId}/`)) delete drafts[key];

@@ -56,3 +56,10 @@ export async function boardRequest<T>(path: string, body?: unknown, signal?: Abo
   if(!response.ok) throw new ApiError(result.error ?? `HTTP ${response.status}`);
   return result as T;
 }
+
+export async function fetchBoardArtifact(boardId:string,name:string):Promise<string>{
+  boardToken ??= get<{token:string}>("/api/auth").then(result=>result.token);
+  const response=await fetch(`/api/boards/${encodeURIComponent(boardId)}/artifacts/${encodeURIComponent(name)}`,{headers:{"x-board-token":await boardToken}});
+  if(!response.ok)throw new ApiError(`Artifact unavailable: HTTP ${response.status}`);
+  return response.text();
+}

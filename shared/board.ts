@@ -20,11 +20,11 @@ export interface AttemptRef {
   taskId: string; dispatchId: string; assigneeHandle: string | null;
   ownsProcess: boolean; nativeStatus: string; workspacePath: string;
   promptPath: string; resultPath: string | null; guidancePaths: string[];
-  dependencyAttemptIds: string[]; stopped: boolean;
+  dependencyAttemptIds: string[]; stopped: boolean; acceptedForRevision?: number;
 }
 export interface PreviewRef {
   nodeId: string; specDigest: string; graphDigest: string;
-  contentPath: string; generatedBy: string;
+  contentPath: string; generatedBy: string; current: boolean;
 }
 export interface ActionRecord {
   id: string; kind: string; baseRevision: number;
@@ -43,10 +43,12 @@ export interface BoardSnapshot {
   pauseNewStarts: boolean; actions: ActionRecord[];
   discussionGroupId: string | null; implementationRunId: string | null;
   messages: BoardMessage[]; acceptedGraphDigest: string | null;
+  acceptedNodeDigests: Record<string,string>;
   history: { deliveryId: string; snapshotPath: string }[];
 }
 export interface FileEdit { path: string; baseDigest: string | null; content: string | null }
 export type BoardEdit =
+  | { kind: "new-delivery" }
   | { kind: "add-task"; title: string }
   | { kind: "edit-node"; nodeId: string; title: string; content: NodeContent; assignment: Assignment | null }
   | { kind: "move-node"; nodeId: string; position: { x: number; y: number } }
@@ -68,7 +70,7 @@ export function createBoardSnapshot(id: string, title: string, members: MemberRe
   return { version: 1, id, title, revision: 1, deliveryId: `${id}-delivery-1`, members, coordinatorIdentity,
     nodes: [createBoardNode(`${id}-run`, "run", "Run")], edges: [], attempts: [], specApproval: null,
     preview: null, pausedNodeIds: [], pauseNewStarts: true, actions: [], discussionGroupId: null,
-    implementationRunId: null, messages: [], acceptedGraphDigest: null, history: [] };
+    implementationRunId: null, messages: [], acceptedGraphDigest: null, acceptedNodeDigests: {}, history: [] };
 }
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

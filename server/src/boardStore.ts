@@ -2,13 +2,13 @@ import { randomUUID, createHash } from "node:crypto";
 import { mkdir, open, readFile, writeFile, rename, readdir, unlink, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createBoardSnapshot, validateMembers, type BoardSnapshot, type MemberRef } from "../../shared/board.js";
-import { validateGraph, digestExecutableBoard } from "./boardGraph.js";
+import { createBoardSnapshot, validateMembers, isRecord, type BoardSnapshot, type MemberRef } from "../../shared/board.js";
+import { validateGraph, digestExecutableBoard, digestSpec } from "./boardGraph.js";
 
 export class BoardConflict extends Error {
   constructor(public readonly currentRevision: number) { super(`Board revision conflict; current revision is ${currentRevision}`); }
 }
-interface StoredBoard { snapshot: BoardSnapshot; receipts: Record<string, BoardSnapshot>; createActionId: string }
+interface StoredBoard { snapshot: BoardSnapshot; receipts: Record<string, {revision:number}>; createActionId: string }
 export interface BoardStore {
   root: string;
   create(input: {title: string; members: MemberRef[]; coordinatorIdentity: string}, actionId: string): Promise<BoardSnapshot>;
@@ -56,6 +56,8 @@ export async function createBoardStore(root: string): Promise<BoardStore> {
   async function stored(id: string): Promise<StoredBoard> {
     const value = JSON.parse(await readFile(path(id), "utf8")) as StoredBoard;
     if (value.snapshot?.version !== 1 || value.snapshot.id !== id) throw new Error("Unsupported board storage version");
+    value.snapshot.acceptedNodeDigests ??= {};
+    if(value.snapshot.preview)value.snapshot.preview.current=value.snapshot.preview.specDigest===digestSpec(value.snapshot) && value.snapshot.preview.graphDigest===digestExecutableBoard(value.snapshot);
     validateGraph(value.snapshot.nodes, value.snapshot.edges);
     return value;
   }
@@ -86,18 +88,19 @@ export async function createBoardStore(root: string): Promise<BoardStore> {
     update: (id, expectedRevision, actionId, mutation) => serialize(id, async () => {
       validateStorageId(actionId);
       const value = await stored(id);
-      if (Object.hasOwn(value.receipts, actionId)) return structuredClone(value.receipts[actionId]);
+      if (Object.hasOwn(value.receipts, actionId)) return structuredClone(value.snapshot);
       if (value.snapshot.revision !== expectedRevision) throw new BoardConflict(value.snapshot.revision);
       const next = mutation(structuredClone(value.snapshot));
       if (next.id !== id || next.version !== 1) throw new Error("Board identity cannot change");
       validateGraph(next.nodes,next.edges); validateMembers(next.members);
       if (next.coordinatorIdentity && !next.members.some(member=>member.identity===next.coordinatorIdentity)) throw new Error("Coordinator must remain a member");
       next.revision = value.snapshot.revision + 1;
+      if(next.preview)next.preview.current=next.preview.specDigest===digestSpec(next) && next.preview.graphDigest===digestExecutableBoard(next);
       if (digestExecutableBoard(next) !== digestExecutableBoard(value.snapshot)) {
         await writeAtomic(join(root,id,"artifacts",`revision-${value.snapshot.revision}.json`),JSON.stringify(value.snapshot));
       }
       value.snapshot = next;
-      Object.defineProperty(value.receipts, actionId, {value:next, enumerable:true, configurable:true});
+      Object.defineProperty(value.receipts, actionId, {value:{revision:next.revision}, enumerable:true, configurable:true});
       await writeAtomic(path(id),JSON.stringify(value));
       return structuredClone(next);
     }),
@@ -116,5 +119,9 @@ export async function createBoardStore(root: string): Promise<BoardStore> {
       await unlink(lock);
     },
   };
+  for(const board of await store.list()){
+    const uncertain=board.actions.filter(action=>isRecord(action.payload) && ((action.phase==="queued" && action.payload.delivery==="sending") || (action.phase==="claimed" && (action.payload.operationToken || action.payload.effectToken || action.payload.membershipToken || action.kind==="apply-files"))));
+    if(uncertain.length)await store.update(board.id,board.revision,`recover-${randomUUID()}`,current=>{for(const action of current.actions)if(uncertain.some(item=>item.id===action.id)){action.phase="unknown";action.error="Server restarted with an unfinished effect; reconcile its receipt before retrying";}return current;});
+  }
   return store;
 }

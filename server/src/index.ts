@@ -4,6 +4,8 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile, chmod } from "node:fs/promises";
 import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
+import { refreshNativeBoard } from "./nativeObservation.js";
+import { createCoordinatorActions } from "./coordinatorActions.js";
 import { createBoardStore } from "./boardStore.js";
 import { fileURLToPath } from "node:url";
 import { dirname, extname, join } from "node:path";
@@ -67,6 +69,20 @@ catch(error) {
 await chmod(tokenPath,0o600);
 const boardStore = await createBoardStore(process.env.ORCA_BOARD_ROOT ?? join(homedir(),"work-vault","sessions","orca-boards"));
 const app = createViewerApp(WORKSPACE_DIR, {store:boardStore,token,developmentOrigin:process.env.ORCA_BOARD_DEV_ORIGIN});
+process.env.ORCA_BOARD_CLI ??= existsSync(join(__dirname,"../../bin/boardctl.mjs")) ? `node ${JSON.stringify(join(__dirname,"../../bin/boardctl.mjs"))}` : `node --import tsx ${JSON.stringify(join(__dirname,"boardCli.ts"))}`;
+const coordinatorActions=createCoordinatorActions(boardStore);
+let checkingBoards=false;
+const deliveryTimer=setInterval(()=>{
+  if(checkingBoards)return;checkingBoards=true;
+  void boardStore.list().then(async boards=>{
+    for(const board of boards){
+      try {await refreshNativeBoard(boardStore,board.id);}catch(error){if(!(error instanceof Error) || !error.message.includes("revision conflict"))console.error("Board observation:",String(error));}
+      const queued=board.actions.find(action=>action.phase==="queued" && action.kind!=="launch" && (action.payload as {delivery?:string})?.delivery==="pending");
+      if(queued)try{await coordinatorActions.deliver(board.id,queued.id);}catch(error){console.error("Board delivery:",String(error));}
+    }
+  }).catch(error=>console.error("Board refresh:",String(error))).finally(()=>{checkingBoards=false;});
+},3000);
+deliveryTimer.unref();
 for (const signal of ["SIGINT","SIGTERM"] as const) process.once(signal,()=>{void boardStore.close().finally(()=>process.exit(0));});
 
 // --- Serve the built SPA -------------------------------------------------
