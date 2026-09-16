@@ -1,3 +1,4 @@
+import {assertWorkspaceAvailable} from "./workspaceLease.js";
 import { hasComponentWork } from "./componentActivity.js";
 import { readComponentEvidence, readComponentText, verifySelectionRecord } from "./componentEvidence.js";
 import { registerComponentRun, type ComponentAssociation } from "./componentRegistry.js";
@@ -136,6 +137,7 @@ export function createCollaborateComponents(store: BoardStore, ports: Collaborat
     if(!isAbsolute(request.journalPath))throw new Error('Absolute launch journal path required');
     const inspected=await inspect(board,nodeId,request.identity);
     const {state,node,manifest}=inspected;
+    assertWorkspaceAvailable(state.featureWorkspace);
     if(board.pauseNewStarts || board.pausedNodeIds.includes(nodeId))throw new Error('Component starts are paused');
     if(!board.specApproval || board.specApproval.digest!==digestSpec(board) || board.acceptedNodeDigests[nodeId]!==digestNodeInput(board,nodeId))throw new Error('Current specification and component revision approval required');
     if(!state.approvals.some(approval=>approval.digest===state.gateDigest))throw new Error('Current component gate approval required');
@@ -195,13 +197,13 @@ export function createCollaborateComponents(store: BoardStore, ports: Collaborat
       const board=await store.read(boardId),checked=await checkLaunch(board,nodeId,request);
       if(checked.existing)return checked.existing;
       const launch:ComponentLaunch={request,requestDigest:checked.requestDigest,nodeRevision:checked.node.revision,gateDigest:checked.state.gateDigest,phase:'prepared',requestId:null,dispatchId:null,receiptPath:null,dependencies:checked.dependencies};
-      const saved=await store.update(boardId,board.revision,`component-prepare-${request.launchId}`,current=>{checked.state.launches.push(launch);current.components[nodeId]=checked.state;return current;});
+      const saved=await store.update(boardId,board.revision,`component-prepare-${request.launchId}`,current=>{assertWorkspaceAvailable(checked.state.featureWorkspace);checked.state.launches.push(launch);current.components[nodeId]=checked.state;return current;});
       return saved.components[nodeId].launches.find(item=>item.request.launchId===request.launchId)!;
     },
     async beginLaunch(boardId:string,nodeId:string,request:ComponentLaunchRequest):Promise<ComponentLaunch>{
       const board=await store.read(boardId),checked=await checkLaunch(board,nodeId,request);
       if(!checked.existing || checked.existing.phase!=='prepared')throw new Error('Launch already admitted or not prepared; reconcile its original journal');
-      const saved=await store.update(boardId,board.revision,`component-begin-${request.launchId}`,current=>{checked.existing!.phase='claimed';current.components[nodeId]=checked.state;return current;});
+      const saved=await store.update(boardId,board.revision,`component-begin-${request.launchId}`,current=>{assertWorkspaceAvailable(checked.state.featureWorkspace);checked.existing!.phase='claimed';current.components[nodeId]=checked.state;return current;});
       return saved.components[nodeId].launches.find(item=>item.request.launchId===request.launchId)!;
     },
     async recordLaunch(boardId:string,nodeId:string,request:ComponentLaunchRequest,receipt:unknown):Promise<BoardSnapshot>{

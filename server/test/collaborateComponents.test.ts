@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {applying,workspaceKey} from '../src/workspaceLease.js';
 import { test } from 'node:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -58,6 +59,8 @@ test('each child launch is ordered against board pause and stale approvals',asyn
   const request={identity:master.identity,launchId:'launch-review',taskId:'task_review',role:'reviewer',candidateId:'impl-opus',journalPath:'/private/task_review/launch.json'};
   const prepared=await service.preflight(board.id,'component',request);
   assert.equal(prepared.phase,'prepared');
+  applying.add(workspaceKey('/feature'));
+  try{await assert.rejects(service.beginLaunch(board.id,'component',request),/application is in progress/);}finally{applying.delete(workspaceKey('/feature'));}
   board=await store.read(board.id);
   await store.update(board.id,board.revision,'pause',current=>{current.pauseNewStarts=true;return current;});
   await assert.rejects(service.beginLaunch(board.id,'component',request),/paused/);

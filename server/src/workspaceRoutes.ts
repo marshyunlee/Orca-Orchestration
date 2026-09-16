@@ -1,3 +1,4 @@
+import {findDownstream,digestValue} from "./boardGraph.js";
 import { hasComponentWork } from "./componentActivity.js";
 import {Router} from "express";
 import {randomUUID} from "node:crypto";
@@ -52,14 +53,14 @@ export function createWorkspaceRouter(store:BoardStore):Router{
    assertWorkspaceAvailable(workspace);applying.add(workspace);acquired=true;
    for(const current of await store.list())if(current.nodes.some(node=>node.collaborate && current.members.some(member=>member.identity===node.collaborate!.masterIdentity && workspaceKey(member.workspacePath)===workspace) && hasComponentWork(current,node.id)) || current.attempts.some(attempt=>workspaceKey(attempt.workspacePath)===workspace && hasActiveWriter(attempt)))throw new Error("An agent is writing this workspace. Send the patch as guidance or stop its attempt before Apply");
    const actionId=request.body.actionId;
-   const journalName=`apply-${actionId}`;
-   const reserved=await store.update(board.id,request.body.baseRevision,actionId,current=>{current.actions.push({id:actionId,kind:"apply-files",baseRevision:current.revision,phase:"claimed",actor:"human",nodeId:draft.nodeId,requestId:null,receiptPath:journalName,error:null,payload:{draftId:draft.id,workspace}});return current;});
+   const journalName=`apply-${digestValue(actionId)}`;
+   const reserved=await store.update(board.id,request.body.baseRevision,actionId,current=>{const node=current.nodes.find(node=>node.id===draft.nodeId)!;node.revision++;delete current.acceptedNodeDigests[node.id];current.acceptedGraphDigest=null;current.preview=null;current.pausedNodeIds=[...new Set([...current.pausedNodeIds,...findDownstream(node.id,current.edges)])];current.actions.push({id:actionId,kind:"apply-files",baseRevision:current.revision,phase:"claimed",actor:"human",nodeId:draft.nodeId,requestId:null,receiptPath:journalName,error:null,payload:{draftId:draft.id,workspace}});return current;});
    let outcome:unknown,errorText:string|null=null;
    try{outcome=await applyWorkspaceEdits(workspace,staged.edits,join(store.root,board.id,"artifacts",journalName));}catch(error){errorText=String(error);outcome={error:errorText};}
    let snapshot=reserved;
    for(let retry=0;retry<8;retry++){
     const current=await store.read(board.id);
-    try{snapshot=await store.update(board.id,current.revision,`applied-${actionId}`,value=>{const action=value.actions.find(action=>action.id===actionId)!;action.phase=errorText?"failed":"applied";action.error=errorText;action.payload={...(isRecord(action.payload)?action.payload:{}),outcome};return value;});break;}catch(error){if(!(error instanceof BoardConflict))throw error;if(retry===7)throw error;}
+    try{snapshot=await store.update(board.id,current.revision,`applied-${digestValue(actionId)}`,value=>{const action=value.actions.find(action=>action.id===actionId)!;action.phase=errorText?"failed":"applied";action.error=errorText;action.payload={...(isRecord(action.payload)?action.payload:{}),outcome};return value;});break;}catch(error){if(!(error instanceof BoardConflict))throw error;if(retry===7)throw error;}
    }
    response.json({snapshot,action:snapshot.actions.find(action=>action.id===actionId),outcome});
   }catch(error){fail(response,error);}finally{if(acquired && workspace)applying.delete(workspace);}

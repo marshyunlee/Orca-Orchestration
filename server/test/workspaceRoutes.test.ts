@@ -6,6 +6,8 @@ import {join} from "node:path";
 import {createBoardStore} from "../src/boardStore.js";
 import {createViewerApp} from "../src/app.js";
 import {createBoardNode} from "../../shared/board.js";
+import {digestNodeInput,digestExecutableBoard} from "../src/boardGraph.js";
+import {resolveBoardDependencies} from "../src/boardDependencies.js";
 import {digestFile} from "../src/workspaceEdits.js";
 
 test("Apply requires a stopped writer, preserves drafts and replays without a second file write",async()=>{
@@ -18,18 +20,21 @@ test("Apply requires a stopped writer, preserves drafts and replays without a se
   await writeFile(join(workspace,"code.js"),"original");
   let board=await store.create({title:"Fixture",members:[],coordinatorIdentity:""},"create");
   board=await store.update(board.id,board.revision,"setup",current=>{
-   const node=createBoardNode("task","task","Task");node.assignment={kind:"new-worker",agent:"codex",workspacePath:workspace};current.nodes.push(node);
+   const node=createBoardNode("task","task","Task");node.assignment={kind:"new-worker",agent:"codex",workspacePath:workspace};current.nodes.push(node,createBoardNode("dependent","task","Dependent"));current.edges.push({id:"dep",source:"task",target:"dependent"});current.acceptedNodeDigests.task=digestNodeInput(current,"task");current.acceptedGraphDigest=digestExecutableBoard(current);
    current.attempts.push({id:"attempt",nodeId:"task",nodeRevision:1,runId:"run",taskId:"native-task",dispatchId:"dispatch",assigneeHandle:"worker",ownsProcess:true,nativeStatus:"dispatched",workspacePath:workspace,promptPath:"prompt",resultPath:null,guidancePaths:[],dependencyAttemptIds:[],stopped:false});return current;
   });
   const endpoint=`/api/boards/${board.id}/files`;
   const staged=await post(endpoint+"/stage",{baseRevision:board.revision,actionId:"draft",nodeId:"task",edits:[{path:"code.js",baseDigest:digestFile("original"),content:"edited"}]});
   assert.equal(staged.status,200);board=(await staged.json()).snapshot;
   assert.equal(await readFile(join(workspace,"code.js"),"utf8"),"original");
+  assert.equal(board.nodes.find(node=>node.id==="task")!.revision,1);assert.ok(board.acceptedNodeDigests.task);
   const application={baseRevision:board.revision,actionId:"apply",draftId:"draft"};
   assert.equal((await post(endpoint+"/apply",application)).status,400);
   board=await store.update(board.id,board.revision,"stop",current=>{current.attempts[0].stopped=true;current.attempts[0].nativeStatus="failed";return current;});
   application.baseRevision=board.revision;
-  const applied=await post(endpoint+"/apply",application);assert.equal(applied.status,200);assert.equal((await applied.json()).action.phase,"applied");
+  const applied=await post(endpoint+"/apply",application);assert.equal(applied.status,200);const appliedResult=await applied.json();assert.equal(appliedResult.action.phase,"applied");
+  board=appliedResult.snapshot;assert.equal(board.nodes.find(node=>node.id==="task")!.revision,2);assert.equal(board.acceptedNodeDigests.task,undefined);assert.equal(board.acceptedGraphDigest,null);assert.ok(board.pausedNodeIds.includes("dependent"));
+  board.attempts[0].nativeStatus="completed";assert.throws(()=>resolveBoardDependencies(board,"dependent"),/Unresolved/);
   assert.equal(await readFile(join(workspace,"code.js"),"utf8"),"edited");
   await writeFile(join(workspace,"code.js"),"later human edit");
   const replay=await post(endpoint+"/apply",application);assert.equal(replay.status,200);assert.equal((await replay.json()).action.phase,"applied");
