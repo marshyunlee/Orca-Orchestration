@@ -41,6 +41,10 @@ async function main():Promise<void>{
                                Create a shared board and queue group discussion
   resume [--board <id> | --title <exact-title>]
                                Resume the existing delivery in your assigned role
+  collect                      Refresh saved/native context and request fresh summaries
+  collection-send --request <id>   Coordinator sends one pending request
+  collection-publish --request <id> --file <summary.json>   Requested member responds
+  collection-reconcile --request <id>   Inspect the original send receipt
   read                         Read board, revisions, digests, queued actions and attempts
   claim --action <id>           Claim one coordinator action before doing work
   publish --action <id> --base-revision <n> --file <proposal.json>
@@ -64,6 +68,9 @@ Proposal JSON:
   {"kind":"graph","nodes":[{"id":"task-name","kind":"task","title":"Task","revision":1,"content":{"prompt":"Self-contained task","plan":"","design":"","implementationNotes":""},"assignment":{"kind":"member","identity":"codex:SESSION"},"position":{"x":400,"y":100},"removed":false}],"edges":[{"id":"root-task","source":"RUN_NODE_ID","target":"task-name"}]}
   {"kind":"preview","text":"Expected examples, behavior and acceptance criteria","specDigest":"FROM_READ","graphDigest":"FROM_READ"}
 
+Summary JSON: {"goals":"Current goals","acceptedScope":"Original approval","blockers":"","documents":[],"items":[{"itemId":"stable-work-id","sourceIdentity":"codex:SESSION","ownerIdentity":"codex:SESSION","ownerHandle":"OWN_HANDLE","native":null,"title":"Existing work","content":{"prompt":"Scope","plan":"","design":"","implementationNotes":""},"status":"running","observedAt":"ISO timestamp","references":[],"dependencies":[],"resultPath":null}]}
+Native summaries must use an already observed native binding. Narrative status is agent-reported. Report from your own selected session only.
+
 Component node: add "collaborate":{"masterIdentity":"codex:SESSION","manifestPath":"/absolute/work-vault/sessions/collaborate/HOST/RUN/manifest.json"}, with "assignment":null.
 Component result JSON: {"nodeRevision":1,"selectionPath":"/run/outcome/slice.json","candidateStatePath":"/bulk/candidates/impl-opus/state.json","gateResultPath":"/bulk/candidates/impl-opus/gate-result.json"}.
 Gate source JSON: {"kind":"chat","reference":"/work-vault/actual-user-answer.md","response":"EXACT USER APPROVAL"}. Reuse actual approval only for the matching digest.
@@ -85,8 +92,8 @@ Use --terminal <your-own-handle> when the tool shell lacks inherited Orca identi
     await selectedCaller(created);
     const root=created.nodes.find(node=>node.kind==="run")!;
     created=await request<BoardSnapshot>(`/api/boards/${created.id}/edit`,{baseRevision:created.revision,actionId:`${actionId}-root`,operation:{kind:"edit-node",nodeId:root.id,title:root.title,content:{...root.content,prompt:body},assignment:null}});
-    if(members.length>1)created=await request<BoardSnapshot>(`/api/boards/${created.id}/edit`,{baseRevision:created.revision,actionId:`${actionId}-discuss`,operation:{kind:"discuss",body}});
-    console.log(JSON.stringify({board:created,url,role:"coordinator",discussionQueued:members.length>1}));return;
+    
+    console.log(JSON.stringify({board:created,url,role:"coordinator",collectionQueued:true}));return;
   }
   if(args[0]==="resume"){
     const {boards}=await request<{boards:BoardSnapshot[]}>("/api/boards");
@@ -100,6 +107,30 @@ Use --terminal <your-own-handle> when the tool shell lacks inherited Orca identi
   const id=option("--board");
   const board=await request<BoardSnapshot>(`/api/boards/${encodeURIComponent(id)}`);
   if(args[0]==="read"){console.log(JSON.stringify(board,null,2));return;}
+  if(args[0]==="collect"){
+    await selectedCaller(board);console.log(JSON.stringify(await request(`/api/boards/${id}/collection/refresh`,{})));return;
+  }
+  if(args[0]==="collection-publish"){
+    const entry=board.collection.requests.find(entry=>entry.id===option("--request"));
+    if(!entry || entry.member.terminalHandle!==callerHandle)throw new Error("Publish from the requested session itself");
+    console.log(JSON.stringify(await request(`/api/boards/${id}/collection/publish`,{identity:entry.member.identity,requestId:entry.id,summary:JSON.parse(await readFile(option("--file"),"utf8"))})));return;
+  }
+  if(args[0]==="collection-send" || args[0]==="collection-reconcile"){
+    const caller=await selectedCaller(board),entry=board.collection.requests.find(entry=>entry.id===option("--request"));
+    if(!entry)throw new Error("Collection request not found");
+    let receipt;
+    if(args[0]==="collection-reconcile"){
+      if(!entry.requestId)throw new Error("No native request identity was received; inspect original send evidence, do not resend");
+      const inspected=await executeNativeOperation({kind:"inspect-request",requestId:entry.requestId},caller,{callerTerminal:callerHandle});
+      const result=(inspected.raw as {result?:{state?:string;receipt?:unknown}}).result;
+      if(inspected.phase!=="applied" || result?.state!=="completed" || !result.receipt)throw new Error("Original request has not completed; keep the request pending");
+      receipt=normalizeNativeReceipt({ok:true,result:result.receipt});receipt.requestId??=entry.requestId;
+    }else{
+      const operation=await request<NativeOperation>(`/api/boards/${id}/collection/operation`,{identity:caller.identity,requestId:entry.id});
+      receipt=await executeNativeOperation(operation,caller,{callerTerminal:callerHandle});
+    }
+    console.log(JSON.stringify(await request(`/api/boards/${id}/collection/delivery`,{identity:caller.identity,requestId:entry.id,receipt})));return;
+  }
   if(args[0]==="attest-stop"){
     const member=board.members.find(member=>member.terminalHandle===callerHandle);
     if(!member)throw new Error("Run stop acknowledgment from the assigned member session");

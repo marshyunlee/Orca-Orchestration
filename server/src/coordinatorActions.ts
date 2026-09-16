@@ -32,7 +32,7 @@ export function createCoordinatorActions(store:BoardStore,port:CoordinatorPort=c
   }
   return {
     async queue(boardId:string,baseRevision:number,actionId:string,kind:string,body:string,payload:unknown=null):Promise<BoardSnapshot>{
-      if(![...componentActionKinds,"discuss","generate-tasks","review-graph","answer-question","members","start","resume","guidance","stop-rerun","reconcile"].includes(kind) || typeof body!=="string")throw new Error("Unsupported coordinator action");
+      if(![...componentActionKinds,"collect-work","discuss","generate-tasks","review-graph","answer-question","members","start","resume","guidance","stop-rerun","reconcile"].includes(kind) || typeof body!=="string")throw new Error("Unsupported coordinator action");
       return store.update(boardId,baseRevision,actionId,board=>{
         if(!board.coordinatorIdentity || !board.members.some(member=>member.identity===board.coordinatorIdentity))throw new Error("Select the group coordinator first");
         if(componentActionKinds.includes(kind)){
@@ -77,6 +77,7 @@ export function createCoordinatorActions(store:BoardStore,port:CoordinatorPort=c
           `Run boardctl from this coordinator session. Inspect the board, claim this action once, then read the returned revision before publishing.`,
           `CLI: ${command}. Server: ${process.env.ORCA_BOARD_URL??`http://127.0.0.1:${process.env.PORT??8787}`}. Use its --help for typed commands.`,
           `Board artifacts: ${join(store.root,boardId)}. Keep all discussion and evidence here.`,
+          `For collect-work: read collection.requests and saved context artifacts; run collection-send --request <id> for each pending member. Publish your own summary with collection-publish. Members answer at their next safe checkpoint. Synthesize available goals, accepted scope and open questions into a spec proposal; identify missing replies. Never call group-init, rebind a Run, create a summary Dispatch or approve the spec.`,
           `For discuss: initialize/attach the shared group via boardctl group-init; follow the group skill's finite rounds, collect attributed contributions, publish its canonical document, and propose the resulting spec. Do not infer agreement from silence.`,
           `For generate-tasks: propose task nodes, exact group-member or new-worker assignments, and edges from the Run root using the approved spec.`,
           `For review-graph: inspect current spec, graph, assignments, results; publish an expected-deliverable Preview with examples, behavior, acceptance criteria, and open assumptions. Do not execute tasks to create Preview.`,
@@ -141,7 +142,7 @@ export function createCoordinatorActions(store:BoardStore,port:CoordinatorPort=c
           const root=board.nodes.find(node=>node.kind==="run")!;
           switch(proposal.kind){
             case "spec":
-              if(action.kind!=="discuss" || typeof proposal.text!=="string" || !proposal.text.trim() || !Array.isArray(proposal.messages))throw new Error("Discussion specification required");
+              if(!["discuss","collect-work"].includes(action.kind) || typeof proposal.text!=="string" || !proposal.text.trim() || !Array.isArray(proposal.messages))throw new Error("Discussion specification required");
               for(const message of proposal.messages){if(!message || typeof message.body!=="string" || !board.members.some(member=>member.identity===message.author))throw new Error("Contribution author must be an identified group member");board.messages.push({...message,id:randomUUID(),createdAt:new Date().toISOString()});}
               root.content.design=proposal.text;root.revision++;board.specApproval=null;break;
             case "graph": {

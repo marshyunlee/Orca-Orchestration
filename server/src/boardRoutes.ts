@@ -1,3 +1,4 @@
+import {createImportRouter,collectBoardSessions} from './importRoutes.js';
 import { componentActionKinds } from "./componentPrompt.js";
 import { hasComponentWork } from "./componentActivity.js";
 import { createCollaborateRouter } from "./collaborateRoutes.js";
@@ -114,9 +115,16 @@ export function createBoardRouter(store: BoardStore, token: string): Router {
   router.get("/:id",async (request,response)=>{try{const board=await store.read(request.params.id);response.json({...board,digests:{spec:digestSpec(board),graph:digestExecutableBoard(board)}});}catch(error){sendBoardError(response,error);}});
   router.use(requireToken(token));
   router.use("/:id/files",createWorkspaceRouter(store));
+  router.use("/:id/collection",createImportRouter(store));
   router.use("/:id/components",createCollaborateRouter(store));
   router.post("/",async (request,response)=>{
-    try { response.json(await store.create(request.body,request.body.actionId)); } catch(error){sendBoardError(response,error);}
+    try {
+      validateMembers(request.body.members);
+      request.body.members=await Promise.all(request.body.members.map(verifyGroupMember));
+      if(request.body.members.length && !request.body.coordinatorIdentity)throw new Error("Select a coordinator for the existing sessions");
+      const board=await store.create(request.body,request.body.actionId);response.json(board);
+      if(board.members.length)void collectBoardSessions(store,board.id).catch(()=>{});
+    } catch(error){sendBoardError(response,error);}
   });
   router.post("/:id/edit",async (request: Request,response: Response)=>{
     try {
@@ -146,7 +154,8 @@ export function createBoardRouter(store: BoardStore, token: string): Router {
           response.json(saved);void coordinator.deliver(saved.id,actionId as string).catch(()=>{});return;
         }
       }
-      response.json(await store.update(String(request.params.id),baseRevision as number,actionId as string,board=>applyBoardEdit(board,operation as BoardEdit)));
+      const saved=await store.update(String(request.params.id),baseRevision as number,actionId as string,board=>applyBoardEdit(board,operation as BoardEdit));response.json(saved);
+      if(isRecord(operation) && operation.kind==="members")void collectBoardSessions(store,saved.id).catch(()=>{});
     } catch(error){sendBoardError(response,error);}
   });
   router.post("/:id/coordinator/launch",async(request,response)=>{

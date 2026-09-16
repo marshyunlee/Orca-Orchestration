@@ -11,6 +11,7 @@ export interface CoordinatorCaller {
 }
 
 export type NativeOperation =
+  | { kind: "send-summary"; terminalHandle: string; body: string }
   | { kind: "create-run"; objective: string }
   | { kind: "bind-run"; runId: string }
   | { kind: "create-task"; runId: string; title: string; spec: string; dependencies: string[] }
@@ -58,6 +59,7 @@ function buildNativeArguments(operation: NativeOperation, caller: CoordinatorCal
       }
       break;
     }
+    case "send-summary": args = ["send", "--to", operation.terminalHandle, "--subject", "Board context request at next safe checkpoint", "--body", operation.body, ...from]; break;
     case "send-guidance": args = ["send", "--to", `dispatch:${operation.dispatchId}`, "--subject", "Board guidance", "--body", operation.body, ...from]; break;
     case "stop-worker": args = ["worker-stop", "--dispatch", operation.dispatchId]; break;
     case "retain-worker": args = ["worker-retain", "--dispatch", operation.dispatchId]; break;
