@@ -1,3 +1,4 @@
+import {emptyCollection} from '../../shared/imports.js';
 import { randomUUID, createHash } from "node:crypto";
 import { mkdir, open, readFile, writeFile, rename, readdir, unlink, realpath } from "node:fs/promises";
 import { join } from "node:path";
@@ -58,6 +59,7 @@ export async function createBoardStore(root: string): Promise<BoardStore> {
     if (value.snapshot?.version !== 1 || value.snapshot.id !== id) throw new Error("Unsupported board storage version");
     value.snapshot.acceptedNodeDigests ??= {};
     value.snapshot.components ??= {};
+    value.snapshot.collection ??= emptyCollection();
     if(value.snapshot.preview)value.snapshot.preview.current=value.snapshot.preview.specDigest===digestSpec(value.snapshot) && value.snapshot.preview.graphDigest===digestExecutableBoard(value.snapshot);
     validateGraph(value.snapshot.nodes, value.snapshot.edges);
     return value;

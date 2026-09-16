@@ -1,3 +1,4 @@
+import {emptyCollection, type ImportedWork, type CollectionState} from './imports.js';
 import type { ComponentBinding, ComponentState, DependencyEvidence } from "./collaborate.js";
 export type AgentSource = "codex" | "claude" | "cursor" | "other";
 export type NodeKind = "run" | "task" | "preview";
@@ -12,10 +13,10 @@ export type Assignment =
 export interface NodeContent { prompt: string; plan: string; design: string; implementationNotes: string }
 export interface BoardNode {
   id: string; kind: NodeKind; title: string; revision: number;
-  content: NodeContent; assignment: Assignment | null; collaborate?: ComponentBinding;
+  content: NodeContent; assignment: Assignment | null; collaborate?: ComponentBinding; imported?: ImportedWork;
   position: { x: number; y: number }; removed: boolean;
 }
-export interface BoardEdge { id: string; source: string; target: string }
+export interface BoardEdge { id: string; source: string; target: string; importedKey?: string }
 export interface AttemptRef {
   id: string; nodeId: string; nodeRevision: number; runId: string;
   taskId: string; dispatchId: string; assigneeHandle: string | null;
@@ -37,6 +38,7 @@ export interface ActionRecord {
 }
 export interface BoardMessage { id: string; author: string; body: string; createdAt: string; nativeMessageId?: string; componentNodeId?: string; answered?: boolean }
 export interface BoardSnapshot {
+  collection: CollectionState;
   version: 1; id: string; title: string; revision: number; deliveryId: string;
   members: MemberRef[]; coordinatorIdentity: string;
   nodes: BoardNode[]; edges: BoardEdge[]; attempts: AttemptRef[]; components: Record<string, ComponentState>;
@@ -75,7 +77,7 @@ export function createBoardNode(id: string, kind: NodeKind, title: string): Boar
   return { id, kind, title, revision: 1, content: { prompt: "", plan: "", design: "", implementationNotes: "" }, assignment: null, position: { x: 100, y: 100 }, removed: false };
 }
 export function createBoardSnapshot(id: string, title: string, members: MemberRef[], coordinatorIdentity: string): BoardSnapshot {
-  return { version: 1, id, title, revision: 1, deliveryId: `${id}-delivery-1`, members, coordinatorIdentity,
+  return { collection: emptyCollection(), version: 1, id, title, revision: 1, deliveryId: `${id}-delivery-1`, members, coordinatorIdentity,
     nodes: [createBoardNode(`${id}-run`, "run", "Run")], edges: [], attempts: [], components: {}, specApproval: null,
     preview: null, pausedNodeIds: [], pauseNewStarts: true, actions: [], discussionGroupId: null,
     implementationRunId: null, messages: [], acceptedGraphDigest: null, acceptedNodeDigests: {}, history: [] };

@@ -1,3 +1,4 @@
+import {validateImportedItem} from '../../shared/imports.js';
 import { validateComponentBinding } from "../../shared/collaborate.js";
 import { createHash } from "node:crypto";
 import type { BoardNode, BoardEdge, BoardSnapshot } from "../../shared/board.js";
@@ -11,6 +12,7 @@ export function validateGraph(nodes: BoardNode[], edges: BoardEdge[]): void {
     ids.add(node.id);
     if (!["run", "task", "preview"].includes(node.kind) || typeof node.title !== "string" || typeof node.removed !== "boolean" || !Number.isInteger(node.revision) || node.revision < 1) throw new Error("Invalid node");
     if (!Number.isFinite(node.position?.x) || !Number.isFinite(node.position?.y)) throw new Error("Invalid position");
+    if(node.imported){validateImportedItem(node.imported);if(node.kind!=="task" || node.collaborate || node.assignment)throw new Error("Imported work preserves its owner binding");}
     validateContent(node.content); validateAssignment(node.assignment); validateComponentBinding(node.collaborate);
     if (node.collaborate && (node.kind !== "task" || node.assignment !== null)) throw new Error("Collaborate components use their master instead of a direct assignment");
   }
@@ -47,7 +49,7 @@ export function findDownstream(nodeId: string, edges: BoardEdge[]): string[] {
 export function digestValue(value: unknown): string { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
 export function digestSpec(board: BoardSnapshot): string { return digestValue(board.nodes.find(node => node.kind === "run")!.content); }
 export function digestExecutableBoard(board: BoardSnapshot): string {
-  const nodes = board.nodes.filter(node => !node.removed && node.kind !== "preview").map(({ id, kind, title, content, assignment, collaborate }) => ({ id, kind, title, content, assignment, ...(collaborate ? {collaborate} : {}) })).sort((a,b)=>a.id.localeCompare(b.id));
+  const nodes = board.nodes.filter(node => !node.removed && node.kind !== "preview").map(({ id, kind, title, content, assignment, collaborate, imported }) => ({ id, kind, title, content, assignment, ...(imported?{sourceKey:imported.key,ownerIdentity:imported.ownerIdentity}:{}), ...(collaborate ? {collaborate} : {}) })).sort((a,b)=>a.id.localeCompare(b.id));
   const ids = new Set(nodes.map(node => node.id));
   const edges = board.edges.filter(edge => ids.has(edge.source) && ids.has(edge.target)).map(({source,target})=>({source,target})).sort((a,b)=>`${a.source}/${a.target}`.localeCompare(`${b.source}/${b.target}`));
   return digestValue({nodes, edges});
@@ -55,5 +57,5 @@ export function digestExecutableBoard(board: BoardSnapshot): string {
 
 export function digestNodeInput(board: BoardSnapshot, nodeId: string): string {
   const node=board.nodes.find(node=>node.id===nodeId)!;
-  return digestValue({id:node.id,title:node.title,content:node.content,assignment:node.assignment,...(node.collaborate?{collaborate:node.collaborate}:{}),dependencies:board.edges.filter(edge=>edge.target===nodeId).map(edge=>edge.source).sort()});
+  return digestValue({id:node.id,title:node.title,content:node.content,assignment:node.assignment,...(node.imported?{sourceKey:node.imported.key,ownerIdentity:node.imported.ownerIdentity}:{}),...(node.collaborate?{collaborate:node.collaborate}:{}),dependencies:board.edges.filter(edge=>edge.target===nodeId).map(edge=>edge.source).sort()});
 }
