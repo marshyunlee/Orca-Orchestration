@@ -1,5 +1,5 @@
-import {assertWorkspaceAvailable} from "./workspaceRoutes.js";
-import { randomUUID } from "node:crypto";
+import {assertWorkspaceAvailable} from "./workspaceLease.js";
+import { createHash, randomUUID } from "node:crypto";
 import type { BoardStore } from "./boardStore.js";
 import type { BoardSnapshot, Assignment, AttemptRef } from "../../shared/board.js";
 import { isRecord } from "../../shared/board.js";
@@ -10,11 +10,11 @@ import type { NativeOperation, NativeReceipt, CoordinatorCaller } from "./orca.j
 export interface LaunchPermit {
   actionId:string;attemptId:string;nodeId:string;nodeRevision:number;promptPath:string;title:string;
   dependencies:{attemptId:string;taskId:string}[];assignment:Assignment;
-  caller:CoordinatorCaller|null;runId:string;memberHandle:string|null;workspacePath:string;
+  caller:CoordinatorCaller|null;runId:string;memberHandle:string|null;workspacePath:string;retryOf?:string;
 }
 interface LaunchPayload {permit:LaunchPermit;operation?:NativeOperation;operationToken?:string;receipt?:NativeReceipt}
 export function hasActiveWriter(attempt:AttemptRef):boolean {
-  return ["admitted","ready","dispatched","unknown"].includes(attempt.nativeStatus) || (attempt.nativeStatus==="failed" && !attempt.stopped && !attempt.resultPath);
+  return ["admitted","pending","ready","dispatched","blocked","unknown"].includes(attempt.nativeStatus) || (attempt.nativeStatus==="failed" && !attempt.stopped && !attempt.resultPath);
 }
 export function createExecutionBridge(store:BoardStore, members={verify:verifyGroupMember,idle:isMemberIdle}) {
   function payload(board:BoardSnapshot,actionId:string):LaunchPayload {
@@ -47,7 +47,9 @@ export function createExecutionBridge(store:BoardStore, members={verify:verifyGr
         if(!board.specApproval || board.specApproval.digest!==digestSpec(board))throw new Error("Specification approval is out of date");
         if(!board.implementationRunId)throw new Error("Coordinator must initialize the implementation Run first");
         if(board.attempts.some(attempt=>attempt.nodeId===nodeId && hasActiveWriter(attempt)))throw new Error("Task already has an active attempt");
-        if(board.attempts.some(attempt=>attempt.nodeId===nodeId && attempt.nodeRevision===nodeRevision && ["failed","unknown"].includes(attempt.nativeStatus)))throw new Error("Reconcile the previous attempt using native retry rules");
+        const retry=board.attempts.filter(attempt=>attempt.nodeId===nodeId && attempt.nodeRevision===nodeRevision && attempt.nativeStatus==="failed").at(-1);
+        if(retry && (!retry.dispatchId || !retry.taskId || (!retry.stopped && !retry.resultPath)))throw new Error("Reconcile the previous attempt using native retry rules");
+        if(retry && !board.actions.some(action=>action.kind==="stop-rerun" && action.phase==="applied" && action.nodeId===nodeId && isRecord(action.payload) && action.payload.attemptId===retry.id && action.payload.rerunReady))throw new Error("Choose Stop and rerun to authorize the failed attempt retry");
         if(memberHandle && board.attempts.some(attempt=>attempt.assigneeHandle===memberHandle && hasActiveWriter(attempt)))throw new Error("Member already has an active task");
         if(board.attempts.some(attempt=>attempt.nodeId===nodeId && attempt.nodeRevision===nodeRevision && attempt.nativeStatus==="completed"))throw new Error("This revision already completed; create an explicit follow-up revision");
         const dependencies=board.edges.filter(edge=>edge.target===nodeId).flatMap(edge=>{
@@ -57,9 +59,10 @@ export function createExecutionBridge(store:BoardStore, members={verify:verifyGr
           if(!attempt)throw new Error(`Unresolved predecessor ${predecessor.title}`);
           return [{attemptId:attempt.id,taskId:attempt.taskId}];
         });
+        if(retry && JSON.stringify(dependencies.map(item=>item.attemptId))!==JSON.stringify(retry.dependencyAttemptIds))throw new Error("Retry dependencies changed; review a revised task before launching");
         const coordinator=board.members.find(member=>member.identity===board.coordinatorIdentity);
-        const permit:LaunchPermit={actionId,attemptId:`attempt_${randomUUID()}`,nodeId,nodeRevision,promptPath,title:selected.title,dependencies,assignment:selected.assignment!,caller:coordinator?{identity:coordinator.identity,terminalHandle:coordinator.terminalHandle,incarnationId:coordinator.incarnationId,hostId:coordinator.hostId}:null,runId:board.implementationRunId,memberHandle,workspacePath};
-        board.attempts.push({id:permit.attemptId,nodeId,nodeRevision,runId:permit.runId,taskId:"",dispatchId:"",assigneeHandle:memberHandle,ownsProcess:selected.assignment!.kind==="new-worker",nativeStatus:"admitted",workspacePath,promptPath,resultPath:null,guidancePaths:[],dependencyAttemptIds:dependencies.map(item=>item.attemptId),stopped:false});
+        const permit:LaunchPermit={actionId,attemptId:`attempt_${randomUUID()}`,nodeId,nodeRevision,promptPath:retry?.promptPath??promptPath,title:selected.title,dependencies,assignment:selected.assignment!,caller:coordinator?{identity:coordinator.identity,terminalHandle:coordinator.terminalHandle,incarnationId:coordinator.incarnationId,hostId:coordinator.hostId}:null,runId:board.implementationRunId,memberHandle,workspacePath,...(retry?{retryOf:retry.dispatchId}:{})};
+        board.attempts.push({id:permit.attemptId,nodeId,nodeRevision,runId:permit.runId,taskId:retry?.taskId??"",dispatchId:"",assigneeHandle:memberHandle,ownsProcess:selected.assignment!.kind==="new-worker",nativeStatus:"admitted",workspacePath,promptPath:permit.promptPath,resultPath:null,guidancePaths:[],dependencyAttemptIds:dependencies.map(item=>item.attemptId),stopped:false});
         board.actions.push({id:actionId,kind:"launch",baseRevision:before.revision,phase:"queued",actor:board.coordinatorIdentity,nodeId,requestId:null,receiptPath:null,error:null,payload:{permit}});
         return board;
       });
@@ -80,7 +83,7 @@ export function createExecutionBridge(store:BoardStore, members={verify:verifyGr
         const attempt=board.attempts.find(attempt=>attempt.id===state.permit.attemptId)!;
         if(attempt.dispatchId || action.phase==="applied")throw new Error("Launch already completed");
         const assignment=state.permit.assignment;
-        const operation:NativeOperation=attempt.taskId?{kind:"start-worker",taskId:attempt.taskId,runId:attempt.runId,assignment:assignment.kind==="member"?{kind:"member",terminalHandle:state.permit.memberHandle!,workspacePath:state.permit.workspacePath}:assignment}:{kind:"create-task",runId:attempt.runId,title:state.permit.title,spec:prompt,dependencies:state.permit.dependencies.map(item=>item.taskId)};
+        const operation:NativeOperation=attempt.taskId?{kind:"start-worker",taskId:attempt.taskId,runId:attempt.runId,...(state.permit.retryOf?{retryOf:state.permit.retryOf}:{}),assignment:assignment.kind==="member"?{kind:"member",terminalHandle:state.permit.memberHandle!,workspacePath:state.permit.workspacePath}:assignment}:{kind:"create-task",runId:attempt.runId,title:state.permit.title,spec:prompt,dependencies:state.permit.dependencies.map(item=>item.taskId)};
         state.operation=operation;state.operationToken=token;action.phase="claimed";return board;
       });
       return {operation:payload(after,actionId).operation!,token};
@@ -89,7 +92,7 @@ export function createExecutionBridge(store:BoardStore, members={verify:verifyGr
       if(!receipt || !["applied","failed","unknown"].includes(receipt.phase))throw new Error("Invalid native receipt");
       const path=await store.artifact(boardId,`native-${randomUUID()}`,JSON.stringify(receipt));
       const before=await store.read(boardId);
-      return store.update(boardId,before.revision,`receipt-${token}`,board=>{
+      return store.update(boardId,before.revision,`receipt-${token}-${createHash("sha256").update(JSON.stringify(receipt)).digest("hex")}`,board=>{
         const state=payload(board,actionId),action=board.actions.find(action=>action.id===actionId)!;
         if(state.operationToken!==token)throw new Error("Receipt belongs to another operation");
         const attempt=board.attempts.find(attempt=>attempt.id===state.permit.attemptId)!;
@@ -97,7 +100,7 @@ export function createExecutionBridge(store:BoardStore, members={verify:verifyGr
         if(receipt.phase!=="applied"){action.phase=receipt.phase;attempt.nativeStatus=receipt.phase;return board;}
         if(state.operation?.kind==="create-task"){
           if(!receipt.taskId){action.phase="unknown";attempt.nativeStatus="unknown";action.error="Native task ID missing; inspect retained receipt";return board;}
-          attempt.taskId=receipt.taskId;action.phase="queued";delete state.operationToken;delete state.operation;
+          attempt.taskId=receipt.taskId;attempt.nativeStatus="ready";action.phase="queued";delete state.operationToken;delete state.operation;
         }else{
           if(!receipt.dispatchId){action.phase="unknown";attempt.nativeStatus="unknown";action.error="Native dispatch ID missing; inspect retained receipt";return board;}
           attempt.dispatchId=receipt.dispatchId;

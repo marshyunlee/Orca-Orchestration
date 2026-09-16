@@ -1,18 +1,21 @@
 # Orca DAG — personal workflow fork
 
-An observer for native Orca task history, paired with a workflow skill for **group-authored spec → supervised implementation → progressive increments**.
+An editable group board with native Orca task history and a workflow skill for **group-authored spec → supervised implementation → progressive increments**.
 
 This MIT-licensed fork derives from [ZinkLu/Orca-Orchestration](https://github.com/ZinkLu/Orca-Orchestration). The personal source is [marshyunlee/Orca-Orchestration](https://github.com/marshyunlee/Orca-Orchestration), pinned as the `utils/orca/orca-dag` submodule. Upstream npm releases do not contain these customizations.
 
 ## Workflow
 
-1. Discuss one bounded delivery with your coordinator, optionally using `group` with explicitly selected existing sessions. The group maintains one specification document in work-vault.
-2. Accept the reviewed document. The coordinator freezes its exact bytes and records the accepted digest and decision reference. Agent consensus alone does not authorize implementation.
-3. Once authorized, the coordinator creates an implementation Run and tasks. Group discussion has its own Run; the implementation briefs reference its accepted spec. The design interview is not repeated.
-4. Observe native task statuses, dependencies, specs, results, and current dispatch/terminal IDs here. Send decisions and start/stop requests through your coordinator conversation.
-5. Iterate: repair contract violations, amend the affected spec for changed behavior, and give substantial new deliveries separate Runs. Preserve earlier results as history.
+1. Create a group tab: its editable Run root appears immediately. Select existing sessions and a coordinator under Manage sessions.
+2. Enter a request and choose Discuss with group. The coordinator runs bounded group rounds and publishes attributed contributions and the specification. Approve spec when satisfied.
+3. Generate tasks. Edit prompts, plans, designs and assignments in the inspector. Drag nodes, connect handles, and select nodes or edges to delete them.
+4. Request Review graph / Update preview. The coordinator describes expected output, examples and acceptance criteria without executing implementation. Start accepts the current Preview and begins supervised work.
+5. Intervene through Pause, guidance, Stop and rerun, or native question replies. Running-task edits hold downstream starts. Review guided results explicitly before accepting them for a changed revision and resuming.
+6. Use New increment after settlement to archive the delivery and retain the group/Run/spec root for subsequent work.
 
-The viewer never acquires a coordinator binding, consumes its mailbox, or executes workers. It has no Run creation, execution, gate-resolution, model-selection, or reset controls. Existing native coordination and selected review skills own their lifecycle rules.
+The selected coordinator performs native operations through packaged `boardctl`; the local server persists edits, admits launches and observes outcomes. Existing members retain their session identity. Unknown effects remain visible for reconciliation. Native task and attempt evidence is never rewritten to match a board edit.
+
+The Implementation panel opens actual workspace files, accepts edited text or unified diffs, and separates Save file draft from Apply. Apply checks base digests and path containment and refuses an active writer. Conflict comparison preserves the user's draft. Preview renders text and bounded PNG/JPEG/WebP/GIF mockups from protected board artifacts; agent HTML is not executed.
 
 ## Build and start
 
@@ -27,6 +30,10 @@ ORCA_DAG_NO_SKILL=1 NO_OPEN=1 node dist-npm/bin/orca-dag.mjs
 Open `http://127.0.0.1:8787` in Orca's embedded browser. The server listens on loopback. `PORT` selects another port. `WORKSPACE_DIR` selects the directory containing `.orca-dag.config.json`; it does not select worker placement. `NO_OPEN=1` skips opening a browser. `ORCA_DAG_NO_SKILL=1` or `--no-skill` disables the bundled skill installer.
 
 In the utils installation, use `node ~/.orca/orca-dag/start.mjs`. Claude and Codex use the identical skill mirrored into utils SSOT; preserve those deployment symlinks. Restarting the viewer after a rebuild is sufficient; Orca itself does not need restarting.
+
+The utils launcher supplies `ORCA_GROUP_HELPER` (shared group Python helper), `ORCA_WORK_CONTEXT_HELPER` (the existing Orca session resolver), and `ORCA_BOARD_ROOT` (default `~/work-vault/sessions/orca-boards`). Standalone installs must configure the two helpers to discover sessions and run group discussion. Unknown identities remain unavailable; labels are never treated as unique IDs.
+
+Board snapshots, revisions and artifacts survive restarts. Private API tokens live in `~/.local/state/orca-board`, outside synchronized work-vault. One live writer is allowed per board store. `ORCA_CLI_COMMAND` selects the native executable consistently. Development may set `ORCA_BOARD_DEV_ORIGIN` to the exact Vite origin.
 
 ## Viewing history
 
@@ -49,7 +56,9 @@ Layout and selected Run are persisted. Historic harness/model/concurrency prefer
 | GET | `/api/config` | Saved viewer preferences |
 | PUT | `/api/config` | Merge preference changes |
 
-All removed execution/mutation endpoints return 404. Neither configuration nor graph viewing can mutate orchestration. There is no local-file serving endpoint for work-vault documents.
+Interactive boards use `/api/boards` and revision-checked `/api/boards/:id/edit` actions. Private artifact, workspace, integration and session endpoints require the local token. Mutations require both the token and an allowed local origin. `boardctl` uses the same protected API; it is packaged at `dist-npm/bin/boardctl.mjs`.
+
+Legacy native routes remain read-only. Unsupported endpoints return 404 before the SPA fallback. No endpoint executes arbitrary browser-supplied shell commands.
 
 ## Development and verification
 
@@ -62,9 +71,9 @@ node scripts/check-skill.mjs
 
 Tests use Node's runner and the existing tsx dependency. `npm run build:npm` includes the frontend typecheck/build and stages a self-contained server/SPA package. `npm run dev` starts Vite and the API. Optional `npm run build:binary` requires Bun; its generated assets must not be edited or committed.
 
-- `server/src/app.ts`: observer HTTP routes, isolated from startup.
+- `server/src/app.ts`: board and history HTTP routes, isolated from startup.
 - `server/src/index.ts`: CLI startup, loopback listening, static/embedded assets.
-- `server/src/orca.ts`: native read adapter and separately invoked uninstall cleanup.
+- `server/src/orca.ts`: typed native coordinator transport and read projections.
 - `server/src/config.ts`: preferences and preserved historic keys.
 - `web/src/viewConfig.ts`: reactive layout/Run preferences.
 - `web/src/graphVisibility.ts`: active work plus original dependency context.

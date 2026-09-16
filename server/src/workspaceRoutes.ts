@@ -1,16 +1,13 @@
 import {Router} from "express";
 import {randomUUID} from "node:crypto";
-import {join,resolve} from "node:path";
-import {realpathSync} from "node:fs";
+import {join} from "node:path";
+import {applying,workspaceKey,assertWorkspaceAvailable} from "./workspaceLease.js";
 import type {BoardStore} from "./boardStore.js";
 import {BoardConflict} from "./boardStore.js";
 import {isRecord,type BoardSnapshot,type FileEdit} from "../../shared/board.js";
 import {hasActiveWriter} from "./executionBridge.js";
 import {readWorkspaceFile,listWorkspaceFiles,previewWorkspaceDiff,applyWorkspaceEdits} from "./workspaceEdits.js";
 
-const applying=new Set<string>();
-function workspaceKey(path:string):string{try{return realpathSync(path);}catch{return resolve(path);}}
-export function assertWorkspaceAvailable(path:string):void{if(applying.has(workspaceKey(path)))throw new Error("Workspace file application is in progress");}
 function taskWorkspace(board:BoardSnapshot,nodeId:string):string{
  const node=board.nodes.find(node=>node.id===nodeId && node.kind==="task");if(!node)throw new Error("Task not found");
  const attempt=board.attempts.filter(attempt=>attempt.nodeId===nodeId).at(-1);

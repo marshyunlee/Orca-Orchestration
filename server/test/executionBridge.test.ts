@@ -33,5 +33,22 @@ test("pause fences new admissions while admitted inputs and exact dependency att
   await bridge.recordNativeReceipt(board.id,"launch",operation.token,{phase:"unknown",requestId:null,stage:null,runId:null,taskId:null,dispatchId:null,liveness:null,raw:"lost output",error:"timeout"});
   await assert.rejects(bridge.beginOperation(board.id,"launch"),/reconcil/i);
   assert.equal((await store.read(board.id)).attempts[0].nativeStatus,"unknown");
+  const recovered={phase:"applied" as const,requestId:"request",stage:null,runId:"run",taskId:"native-task",dispatchId:null,liveness:null,raw:{ok:true},error:null};
+  const reconciled=await bridge.recordNativeReceipt(board.id,"launch",operation.token,recovered);
+  assert.equal(reconciled.attempts[0].taskId,"native-task");
+  assert.equal(reconciled.actions.find(action=>action.id==="launch")!.phase,"queued");
+  assert.equal((await bridge.recordNativeReceipt(board.id,"launch",operation.token,recovered)).revision,reconciled.revision);
+  const start=await bridge.beginOperation(board.id,"launch");
+  await bridge.recordNativeReceipt(board.id,"launch",start.token,{...recovered,dispatchId:"original-dispatch"});
+  const running=await store.read(board.id);
+  await store.update(board.id,running.revision,"settle-failed",current=>{
+    current.pauseNewStarts=false;current.attempts[0].nativeStatus="failed";current.attempts[0].stopped=true;
+    current.actions.push({id:"retry-decision",kind:"stop-rerun",baseRevision:current.revision,phase:"applied",actor:"human",nodeId:"one",requestId:null,receiptPath:null,error:null,payload:{attemptId:permit.attemptId,rerunReady:true}});return current;
+  });
+  const retried=await bridge.admitLaunch(board.id,"one",1,"retry");
+  assert.equal(retried.promptPath,permit.promptPath);
+  const retryOperation=(await bridge.beginOperation(board.id,"retry")).operation;
+  assert.equal(retryOperation.kind,"start-worker");
+  if(retryOperation.kind==="start-worker"){assert.equal(retryOperation.taskId,"native-task");assert.equal(retryOperation.retryOf,"original-dispatch");}
  }finally{await store.close();await rm(root,{recursive:true,force:true});}
 });

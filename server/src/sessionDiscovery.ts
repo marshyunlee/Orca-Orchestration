@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { realpath } from "node:fs/promises";
 import type { MemberRef, AgentSource } from "../../shared/board.js";
-import { runOrca } from "./orca.js";
+import { runOrca, OrcaCliError } from "./orca.js";
 const execute=promisify(execFile);
 interface SessionCandidate { tab_name:string;tab_id:string;terminal_handle:string;source:string;session_id?:string;worktree_path:string;error?:string }
 interface TerminalBinding {handle:string;agentIdentity?:string;connected:boolean;writable:boolean;incarnationId?:string;executionHostId?:string;orphaned?:boolean}
@@ -57,6 +57,8 @@ export async function verifyGroupMember(member:MemberRef):Promise<MemberRef>{
   return verified;
 }
 export async function isMemberIdle(member:MemberRef):Promise<boolean>{
-  const result=await runOrca<{wait:{satisfied:boolean}}>(["terminal","wait","--terminal",member.terminalHandle,"--for","tui-idle","--timeout-ms","1"]);
-  return result.wait.satisfied;
+  try{
+    const result=await runOrca<{wait:{satisfied:boolean}}>(["terminal","wait","--terminal",member.terminalHandle,"--for","tui-idle","--timeout-ms","100"]);
+    return result.wait.satisfied;
+  }catch(error){if(error instanceof OrcaCliError && error.code==="timeout")return false;throw error;}
 }

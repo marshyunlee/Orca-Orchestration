@@ -1,3 +1,4 @@
+import {observationErrors,discussionStatuses} from "./nativeObservation.js";
 import {createMembershipActions} from "./membershipActions.js";
 import {createWorkspaceRouter} from "./workspaceRoutes.js";
 import { Router, type Request, type Response } from "express";
@@ -17,6 +18,16 @@ export function applyBoardEdit(board: BoardSnapshot, operation: BoardEdit): Boar
   const target = "nodeId" in operation ? board.nodes.find(node=>node.id===operation.nodeId && !node.removed) : undefined;
   if ("nodeId" in operation && !target) throw new Error("Node not found");
   switch (operation.kind) {
+    case "accept-result": {
+      const attempt=board.attempts.find(attempt=>attempt.id===operation.attemptId && attempt.nodeId===target!.id);
+      if(!attempt || attempt.nativeStatus!=="completed" || !attempt.resultPath)throw new Error("A completed attempt with result evidence is required");
+      attempt.acceptedForRevision=target!.revision;return board;
+    }
+    case "remove-selection": {
+      if(!Array.isArray(operation.nodeIds) || !Array.isArray(operation.edgeIds))throw new Error("Selection required");
+      for(const nodeId of operation.nodeIds)applyBoardEdit(board,{kind:"remove-node",nodeId});
+      board.edges=board.edges.filter(edge=>!operation.edgeIds.includes(edge.id));return board;
+    }
     case "add-task": {
       if (typeof operation.title !== "string" || !operation.title.trim()) throw new Error("Task title required");
       const node = createBoardNode(`node_${randomUUID()}`,"task",operation.title);
@@ -93,7 +104,7 @@ export function createBoardRouter(store: BoardStore, token: string): Router {
   const bridge=createExecutionBridge(store);
   const executor=createActionExecutor(store);
   const membership=createMembershipActions(store);
-  router.get("/",async (_request,response)=>{try{response.json({boards:await store.list()});}catch(error){sendBoardError(response,error);}});
+  router.get("/",async (_request,response)=>{try{response.json({boards:(await store.list()).map(board=>({...board,observationError:observationErrors.get(board.id),discussionStatus:discussionStatuses.get(board.id)}))});}catch(error){sendBoardError(response,error);}});
   router.get("/:id",async (request,response)=>{try{const board=await store.read(request.params.id);response.json({...board,digests:{spec:digestSpec(board),graph:digestExecutableBoard(board)}});}catch(error){sendBoardError(response,error);}});
   router.use(requireToken(token));
   router.use("/:id/files",createWorkspaceRouter(store));
@@ -113,7 +124,7 @@ export function createBoardRouter(store: BoardStore, token: string): Router {
           board.nodes=board.nodes.filter(node=>node.kind==="run");board.edges=[];board.attempts=[];board.actions=[];board.preview=null;board.pausedNodeIds=[];board.pauseNewStarts=true;board.acceptedGraphDigest=null;board.acceptedNodeDigests={};board.implementationRunId=null;return board;
         }));return;
       }
-      if (isRecord(operation) && ["discuss","generate-tasks","review-graph","answer-question","start","resume","guidance","stop-rerun"].includes(String(operation.kind))) {
+      if (isRecord(operation) && ["discuss","generate-tasks","review-graph","answer-question","start","resume","guidance","stop-rerun","reconcile"].includes(String(operation.kind))) {
         const saved=await coordinator.queue(String(request.params.id),baseRevision as number,actionId as string,String(operation.kind),String(operation.body??""),operation);
         response.json(saved);
         void coordinator.deliver(saved.id,actionId as string).catch(()=>{});

@@ -39,6 +39,9 @@ if (args[0] === 'terminal') {
     await executeNativeOperation({ kind: "start-worker", taskId: "task_fixture", runId: "run_fixture", assignment: { kind: "member", terminalHandle: "term_member", workspacePath: "/fixture", model: "must-not-apply" } } as never, caller, options);
     commands = (await readFile(log, "utf8")).trim().split("\n").map(line => JSON.parse(line));
     assert.deepEqual(commands.at(-1), ["orchestration", "dispatch", "--task", "task_fixture", "--to", "term_member", "--run", "run_fixture", "--inject", "--from", "term_fixture", "--json"]);
+    await executeNativeOperation({kind:"start-worker",taskId:"task_fixture",runId:"run_fixture",retryOf:"previous",assignment:{kind:"member",terminalHandle:"term_member",workspacePath:"/fixture"}},caller,options);
+    commands=(await readFile(log,"utf8")).trim().split("\n").map(line=>JSON.parse(line));
+    assert.deepEqual(commands.at(-1),["orchestration","worker-start","--task","task_fixture","--terminal","term_member","--worktree","path:/fixture","--run","run_fixture","--from","term_fixture","--retry-of","previous","--json"]);
     await assert.rejects(executeNativeOperation({ kind: "start-worker", taskId: "task_fixture", runId: "run_fixture", assignment: { kind: "member", terminalHandle: "term_fixture", workspacePath: "/fixture" } }, caller, options), /coordinator.*handover/);
     await executeNativeOperation({ kind: "stop-worker", dispatchId: "dispatch_fixture" }, caller, options);
     commands = (await readFile(log, "utf8")).trim().split("\n").map(line => JSON.parse(line));

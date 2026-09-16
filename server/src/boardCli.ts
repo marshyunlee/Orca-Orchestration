@@ -3,7 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { executeNativeOperation, runOrca, type CoordinatorCaller, type NativeOperation } from "./orca.js";
+import { executeNativeOperation, normalizeNativeReceipt, runOrca, type CoordinatorCaller, type NativeOperation } from "./orca.js";
 import type { LaunchPermit } from "./executionBridge.js";
 import { callGroupHelper, groupMemberPayload, updateGroupMembers } from "./groupAdapter.js";
 import type { BoardSnapshot, MemberRef } from "../../shared/board.js";
@@ -38,6 +38,7 @@ async function main():Promise<void>{
   claim --action <id>           Claim one coordinator action before doing work
   publish --action <id> --base-revision <n> --file <proposal.json>
   group-init                   Initialize and attach the shared group runtime
+  reconcile --action <id>       Recover the exact recorded native operation
   execute-action --action <id>  Execute a claimed human action
   launch --node <id>            Admit and start one ready node from this coordinator
   attest-stop --attempt <id> --evidence <text>   Member confirmation after stopping all work
@@ -48,6 +49,7 @@ Proposal JSON:
   {"kind":"graph","nodes":[{"id":"task-name","kind":"task","title":"Task","revision":1,"content":{"prompt":"Self-contained task","plan":"","design":"","implementationNotes":""},"assignment":{"kind":"member","identity":"codex:SESSION"},"position":{"x":400,"y":100},"removed":false}],"edges":[{"id":"root-task","source":"RUN_NODE_ID","target":"task-name"}]}
   {"kind":"preview","text":"Expected examples, behavior and acceptance criteria","specDigest":"FROM_READ","graphDigest":"FROM_READ"}
 
+Preview proposals may include images: [{"mimeType":"image/png","base64":"...","caption":"Expected screen"}] (up to eight, 1 MB each; the full API payload is limited to 2 MB).
 Native operations run only inside the selected coordinator. Unknown receipts require reconciliation; never repeat an unknown mutation blindly.`);return;
   }
   if(args[0]==="native"){
@@ -74,6 +76,27 @@ Native operations run only inside the selected coordinator. Unknown receipts req
   if(args[0]==="publish"){
     const proposal=JSON.parse(await readFile(option("--file"),"utf8"));
     console.log(JSON.stringify(await request(`/api/boards/${id}/coordinator/publish`,{identity:caller.identity,actionId:option("--action"),baseRevision:Number(option("--base-revision")),proposal})));return;
+  }
+  if(args[0]==="reconcile"){
+    const action=board.actions.find(action=>action.id===option("--action"));
+    if(!action || !action.payload || typeof action.payload!=="object")throw new Error("Action not found");
+    const data=action.payload as Record<string,unknown>;
+    const token=data.operationToken??data.effectToken;
+    if(data.membershipToken && board.discussionGroupId){
+      const receipt=await callGroupHelper(["status","--group",board.discussionGroupId]);
+      console.log(JSON.stringify(await request(`/api/boards/${id}/coordinator/membership-receipt`,{identity:caller.identity,actionId:action.id,token:data.membershipToken,receipt})));return;
+    }
+    if(!token || !data.operation)throw new Error("No admitted native operation; inspect delivery or group state before retrying");
+    if(!action.requestId)throw new Error("No request ID was received. Inspect the exact frozen Run/task/dispatch in native state; the board will not blindly resend");
+    const inspection=await executeNativeOperation({kind:"inspect-request",requestId:action.requestId},caller);
+    if(inspection.phase!=="applied")throw new Error("Native request inspection failed; outcome remains unknown");
+    const inspected=(inspection.raw as {result?:{state?:string;receipt?:unknown}}).result;
+    if(!inspected || !["completed","pending"].includes(inspected.state??""))throw new Error(`Native request is ${inspected?.state??"unverifiable"}; inspect affected native state before retrying`);
+    const receipt=inspected.state==="completed" && inspected.receipt
+      ? normalizeNativeReceipt({ok:true,result:inspected.receipt})
+      : await executeNativeOperation(data.operation as NativeOperation,caller,{retryRequest:action.requestId});
+    const endpoint=action.kind==="launch"?"receipt":"action-receipt";
+    console.log(JSON.stringify(await request(`/api/boards/${id}/coordinator/${endpoint}`,{identity:caller.identity,actionId:action.id,token,receipt})));return;
   }
   if(args[0]==="execute-action"){
     const action=board.actions.find(action=>action.id===option("--action"));
@@ -122,9 +145,10 @@ Native operations run only inside the selected coordinator. Unknown receipts req
       await writeFile(membersPath,JSON.stringify(board.members.map(groupMemberPayload)),{mode:0o600});
       const topic=board.messages.filter(message=>message.author==="human").at(-1)?.body || board.nodes.find(node=>node.kind==="run")!.content.prompt;
       await writeFile(topicPath,topic,{mode:0o600});
-      const group=await callGroupHelper(["create","--topic-file",topicPath,"--members-file",membersPath,"--actor",caller.identity,"--output",join(root,id,"discussion.md")]);
+      const existingGroup=await callGroupHelper(["find-document","--document",join(root,id,"discussion.md")]);
+      const group=existingGroup??await callGroupHelper(["create","--topic-file",topicPath,"--members-file",membersPath,"--actor",caller.identity,"--output",join(root,id,"discussion.md")]);
       groupId=group.id;
-      await request(`/api/boards/${id}/coordinator/group`,{identity:caller.identity,actionId:randomUUID(),baseRevision:board.revision,groupId});
+      await request(`/api/boards/${id}/coordinator/group`,{identity:caller.identity,actionId:randomUUID(),baseRevision:(await request<BoardSnapshot>(`/api/boards/${id}`)).revision,groupId});
     }
     console.log(JSON.stringify(await callGroupHelper(["attach","--group",groupId,"--actor",caller.identity])));return;
   }

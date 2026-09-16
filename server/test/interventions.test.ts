@@ -28,5 +28,32 @@ test("running edits preserve attempt input and pause transitive dependents; unkn
   assert.equal(after.attempts[0].stopped,false);
   assert.equal(after.actions.find(action=>action.id==="stop")!.phase,"unknown");
   assert.equal(after.acceptedNodeDigests.one,undefined);
+  const recovered=await executor.finish(board.id,"stop",prepared.token!,{phase:"applied",requestId:"unknown",stage:null,runId:"run",taskId:"task",dispatchId:"dispatch",liveness:"exited",raw:{result:{state:"stopped"}},error:null});
+  assert.equal(recovered.attempts[0].stopped,true);
+  assert.equal(recovered.actions.find(action=>action.id==="stop")!.phase,"applied");
+  let settled=await store.read(board.id);
+  settled=await store.update(board.id,settled.revision,"settled-race",current=>{
+    current.attempts[0].nativeStatus="completed";current.attempts[0].resultPath="report";current.attempts[0].stopped=false;
+    current.actions.push({id:"settled-stop",kind:"stop-rerun",baseRevision:current.revision,phase:"claimed",actor:"",nodeId:"one",requestId:null,receiptPath:null,error:null,payload:{}});return current;
+  });
+  const noStop=await executor.begin(board.id,"settled-stop","");
+  assert.equal(noStop.operation,null);
+  const reconciled=await store.read(board.id);
+  assert.equal(reconciled.actions.find(action=>action.id==="settled-stop")!.phase,"applied");
+  assert.equal(reconciled.attempts[0].nativeStatus,"completed");
+  assert.equal(reconciled.attempts[0].stopped,false);
+  const ready=await store.read(board.id);
+  await store.update(board.id,ready.revision,"blocked-member",current=>{
+    current.attempts[0].nativeStatus="dispatched";current.attempts[0].ownsProcess=false;current.attempts[0].resultPath=null;
+    current.messages.push({id:"question",nativeMessageId:"native-question",author:"dispatch:dispatch",body:"May I proceed?",createdAt:"now",answered:false});
+    current.actions.push({id:"blocked-stop",kind:"stop-rerun",baseRevision:current.revision,phase:"claimed",actor:"",nodeId:"one",requestId:null,receiptPath:null,error:null,payload:{}});return current;
+  });
+  const wake=await executor.begin(board.id,"blocked-stop","");
+  assert.equal(wake.operation?.kind,"reply-question");
+  if(wake.operation?.kind==="reply-question")assert.equal(wake.operation.messageId,"native-question");
+  const waiting=await executor.finish(board.id,"blocked-stop",wake.token!,{phase:"applied",requestId:"reply",stage:null,runId:"run",taskId:null,dispatchId:null,liveness:null,raw:{ok:true},error:null});
+  assert.equal(waiting.actions.find(action=>action.id==="blocked-stop")!.phase,"claimed");
+  assert.equal(waiting.messages.find(message=>message.id==="question")!.answered,true);
+  assert.equal(waiting.attempts[0].stopped,false);
  }finally{await store.close();await rm(root,{recursive:true,force:true});}
 });

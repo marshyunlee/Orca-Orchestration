@@ -154,6 +154,8 @@ const SCRIBBLE_FADE_STEP = 0.05;
 
 type TaskNodeData = {  label: string;
   status: TaskStatus;
+  kind?: "run" | "task" | "preview";
+  statusLabel?: string;
   selected: boolean;
   dir: "LR" | "TB";
   /** paint order on first draw — staggers the entrance so the DAG "grows" */
@@ -247,12 +249,12 @@ function TaskNode({ id, data }: NodeProps<Node<TaskNodeData>>) {
       )}
       {/* breathing dashed ring (ready) / radiating pulse (dispatched) */}
       {alive && <div className="task-node__aura" aria-hidden="true" />}
-      <Handle type="target" position={isTB ? Position.Top : Position.Left} />
+      {data.kind!=="run" && <Handle type="target" position={isTB ? Position.Top : Position.Left} />}
       <div className="task-node__title">{data.label}</div>
       <div className="task-node__row">
         <div className="task-node__status" style={{ color: meta.ink }}>
           <span className="dot" style={{ background: meta.color }} />
-          {meta.label}
+          {data.statusLabel??meta.label}
         </div>
 
       </div>
@@ -295,7 +297,7 @@ function TaskNode({ id, data }: NodeProps<Node<TaskNodeData>>) {
           <path d="M10 34 L0 32" />
         </svg>
       )}
-      <Handle type="source" position={isTB ? Position.Bottom : Position.Right} />
+      {data.kind!=="preview" && <Handle type="source" position={isTB ? Position.Bottom : Position.Right} />}
     </div>
   );
 }
@@ -665,6 +667,7 @@ function BoardFlow({board,selectedId,onSelect,onEdit}:{board:BoardSnapshot;selec
   const [nodes,setNodes,onNodesChange]=useNodesState<Node<TaskNodeData>>([]);
   const [edges,setEdges,onEdgesChange]=useEdgesState<Edge>([]);
   const dragging=useRef<string|null>(null);
+  const dragged=useRef(new Map<string,{x:number;y:number}>());
   const flow=useReactFlow();
   useEffect(()=>{if(nodes.length)void flow.fitView({padding:0.2,maxZoom:1});},[nodes.length,flow]);
   useEffect(()=>{
@@ -673,8 +676,8 @@ function BoardFlow({board,selectedId,onSelect,onEdit}:{board:BoardSnapshot;selec
       const attempt=board.attempts.filter(attempt=>attempt.nodeId===node.id && attempt.nodeRevision===node.revision).at(-1);
       const observed=attempt?.nativeStatus;
       const status:TaskStatus=node.kind==="run"?(board.specApproval?"completed":"pending"):observed && Object.hasOwn(STATUS_META,observed)?observed as TaskStatus:"pending";
-      return {...retained,id:node.id,type:"task",position:dragging.current===node.id && retained?retained.position:node.position,
-        deletable:node.kind==="task",data:{label:node.title,status,selected:selectedId===node.id,dir:"LR",index,tilt:0,pop:false}};
+      return {...retained,id:node.id,type:"task",position:dragged.current.get(node.id)??(dragging.current===node.id && retained?retained.position:node.position),
+        ariaLabel:`${node.kind}: ${node.title}`,deletable:node.kind==="task",data:{label:node.title,status,kind:node.kind,statusLabel:node.kind==="run"?(board.specApproval?"Spec approved":"Spec draft"):node.kind==="preview"?(board.preview?.current?"Ready to review":"Out of date"):undefined,selected:selectedId===node.id,dir:"LR",index,tilt:0,pop:false}};
     }));
     setEdges(board.edges.map(edge=>({...edge,type:"pencil"})));
   },[board,selectedId,setNodes,setEdges]);
@@ -682,12 +685,11 @@ function BoardFlow({board,selectedId,onSelect,onEdit}:{board:BoardSnapshot;selec
     onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} fitView minZoom={0.2}
     onNodeClick={(_,node)=>onSelect(node.id)} onPaneClick={()=>onSelect(null)}
     onNodeDragStart={(_,node)=>{dragging.current=node.id;}}
-    onNodeDragStop={(_,node)=>{dragging.current=null;onEdit({kind:"move-node",nodeId:node.id,position:node.position});}}
+    onNodeDragStop={(_,node)=>{dragging.current=null;dragged.current.set(node.id,node.position);onEdit({kind:"move-node",nodeId:node.id,position:node.position});}}
     onConnect={connection=>{if(connection.source && connection.target)onEdit({kind:"connect",source:connection.source,target:connection.target});}}
     onBeforeDelete={async ({nodes:removedNodes,edges:removedEdges})=>{
       if(document.activeElement?.matches("input,textarea,select,[contenteditable=true]")) return false;
-      if(removedNodes.length) removedNodes.forEach(node=>onEdit({kind:"remove-node",nodeId:node.id}));
-      else removedEdges.forEach(edge=>onEdit({kind:"disconnect",edgeId:edge.id}));
+      onEdit({kind:"remove-selection",nodeIds:removedNodes.map(node=>node.id),edgeIds:removedEdges.map(edge=>edge.id)});
       return false;
     }} proOptions={{hideAttribution:true}}>
     <Background variant={BackgroundVariant.Lines} gap={30} color="rgba(96,132,178,0.085)"/><Controls/>

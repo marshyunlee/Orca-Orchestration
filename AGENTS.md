@@ -4,7 +4,7 @@ Edit this file directly; CLAUDE.md remains its symlink.
 
 ## Architecture and authority
 
-This personal fork contains a self-contained workflow skill and an observer built with Express, React, React Flow, and TypeScript. Read server/src/orca.ts before changing native integration. The conversational coordinator owns execution and mailbox processing. The viewer reads explicit Run IDs; it must not acquire coordinator authority, consume messages, or create/stop workers.
+This personal fork contains a self-contained workflow skill and an interactive group board built with Express, React, React Flow, and TypeScript. Read server/src/orca.ts before changing native integration. The conversational coordinator owns execution and mailbox processing. The server reads explicit Run IDs and queues authenticated human actions. Only boardctl inside the selected existing coordinator performs native mutations. The server must not acquire coordinator authority or consume messages. Legacy native history remains read-only.
 
 server/src/app.ts owns the HTTP routes. index.ts owns startup and disk/embedded asset serving. Keep help/uninstall processing before server initialization. Missing API routes must return 404 before the SPA fallback. Listen on loopback.
 

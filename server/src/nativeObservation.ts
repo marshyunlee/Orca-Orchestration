@@ -1,16 +1,29 @@
 import {randomUUID} from "node:crypto";
 import type {BoardStore} from "./boardStore.js";
+import {callGroupHelper} from "./groupAdapter.js";
+import type {BoardSnapshot} from "../../shared/board.js";
 import {listTasks,runOrca} from "./orca.js";
 
-export async function refreshNativeBoard(store:BoardStore,boardId:string):Promise<void>{
+export const discussionStatuses=new Map<string,NonNullable<BoardSnapshot["discussionStatus"]>>();
+export async function refreshDiscussionStatus(board:BoardSnapshot):Promise<void>{
+ if(!board.discussionGroupId)return;
+ const group=await callGroupHelper(["status","--group",board.discussionGroupId]);
+ discussionStatuses.set(board.id,{status:group.status,cycle:Number(group.cycle),round:Number(group.round),remainingRounds:Number(group.remaining_rounds),remainingSeconds:Math.max(0,Math.floor(Number(group.deadline)-Date.now()/1000)),outstanding:Array.isArray(group.outstanding)?group.outstanding.length:0});
+}
+export const observationErrors=new Map<string,string>();
+
+export async function refreshNativeBoard(store:BoardStore,boardId:string, native={listTasks,runOrca}):Promise<void>{
  const before=await store.read(boardId);if(!before.implementationRunId)return;
- const tasks=await listTasks(before.implementationRunId);
+ const tasks=await native.listTasks(before.implementationRunId);
  const coordinator=before.members.find(member=>member.identity===before.coordinatorIdentity);
- const envelope=coordinator?await runOrca<{messages:{id:string;body:string;type:string;from_handle:string;created_at:string}[]}>(["orchestration","check","--peek","--types","question","--terminal",coordinator.terminalHandle,"--run",before.implementationRunId]):{messages:[]};
+ const envelope=coordinator?await native.runOrca<{messages:{id:string;body:string;type:string;from_handle:string;created_at:string}[]}>(["orchestration","check","--peek","--types","question","--terminal",coordinator.terminalHandle,"--run",before.implementationRunId]):{messages:[]};
  const changes: {attemptId:string;status:string;resultPath:string|null}[]=[];
  for(const attempt of before.attempts){
   const task=tasks.find(task=>task.id===attempt.taskId);
-  if(!task || attempt.nativeStatus===task.status)continue;
+  if(!task || attempt.stopped || before.attempts.filter(item=>item.taskId===attempt.taskId).at(-1)?.id!==attempt.id)continue;
+  if(task.status==="dispatched" && task.dispatch_id && task.dispatch_id!==attempt.dispatchId)continue;
+  const previousResult=attempt.resultPath?await store.readArtifact(boardId,attempt.resultPath):null;
+  if(attempt.nativeStatus===task.status && (task.result??null)===previousResult)continue;
   const resultPath=task.result?await store.artifact(boardId,`result-${randomUUID()}`,task.result):attempt.resultPath;
   changes.push({attemptId:attempt.id,status:task.status,resultPath});
  }

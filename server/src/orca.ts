@@ -14,7 +14,7 @@ export type NativeOperation =
   | { kind: "create-run"; objective: string }
   | { kind: "bind-run"; runId: string }
   | { kind: "create-task"; runId: string; title: string; spec: string; dependencies: string[] }
-  | { kind: "start-worker"; taskId: string; runId: string; assignment:
+  | { kind: "start-worker"; taskId: string; runId: string; retryOf?: string; assignment:
       | { kind: "member"; terminalHandle: string; workspacePath: string }
       | { kind: "new-worker"; agent: string; workspacePath: string; model?: string; effort?: string } }
   | { kind: "send-guidance"; dispatchId: string; body: string }
@@ -45,11 +45,16 @@ function buildNativeArguments(operation: NativeOperation, caller: CoordinatorCal
       const assignment = operation.assignment;
       if (assignment.kind === "member") {
         if (assignment.terminalHandle === caller.terminalHandle) throw new Error("The coordinator needs an explicit handover before becoming a worker");
-        args = ["dispatch", "--task", operation.taskId, "--to", assignment.terminalHandle, "--run", operation.runId, "--inject", ...from];
+        args = operation.retryOf
+          ? ["worker-start", "--task", operation.taskId, "--terminal", assignment.terminalHandle, "--worktree", `path:${assignment.workspacePath}`, "--run", operation.runId, ...from]
+          : ["dispatch", "--task", operation.taskId, "--to", assignment.terminalHandle, "--run", operation.runId, "--inject", ...from];
       } else {
         args = ["worker-start", "--task", operation.taskId, "--worktree", `path:${assignment.workspacePath}`, "--agent", assignment.agent, "--run", operation.runId, ...from];
         if (assignment.model) args.push("--model", assignment.model);
         if (assignment.effort) args.push("--effort", assignment.effort);
+      }
+      if (operation.retryOf) {
+        args.push("--retry-of", operation.retryOf);
       }
       break;
     }
@@ -68,7 +73,7 @@ function buildNativeArguments(operation: NativeOperation, caller: CoordinatorCal
 export async function executeNativeOperation(
   operation: NativeOperation,
   caller: CoordinatorCaller,
-  options: { executable?: string; timeoutMs?: number } = {},
+  options: { executable?: string; timeoutMs?: number; retryRequest?: string } = {},
 ): Promise<NativeReceipt> {
   if (!caller.terminalHandle || process.env.ORCA_TERMINAL_HANDLE !== caller.terminalHandle) {
     throw new Error("Native operations must run inside the selected coordinator process");
@@ -85,6 +90,7 @@ export async function executeNativeOperation(
     throw new Error("Coordinator identity or incarnation changed; reconnect explicitly");
   }
   const args = buildNativeArguments(operation, caller);
+  if (options.retryRequest) args.push("--retry-request", options.retryRequest);
   let stdout = "";
   let failure: string | null = null;
   try {
@@ -96,17 +102,22 @@ export async function executeNativeOperation(
   }
   let raw: Record<string, any> | null = null;
   try { raw = JSON.parse(stdout); } catch { /* A lost receipt leaves the effect unknown. */ }
+  return normalizeNativeReceipt(raw ?? stdout, failure);
+}
+
+export function normalizeNativeReceipt(value: unknown, failure: string | null = null): NativeReceipt {
+  const raw = typeof value === "object" && value !== null ? value as Record<string, any> : null;
   const result = raw?.result ?? {};
   const stringOrNull = (value: unknown): string | null => typeof value === "string" ? value : null;
   return {
-    phase: result.state === "outcome_unknown" ? "unknown" : raw?.ok === true ? "applied" : raw?.ok === false ? "failed" : "unknown",
+    phase: result.state === "outcome_unknown" ? "unknown" : result.state === "failed" ? "failed" : raw?.ok === true ? "applied" : raw?.ok === false ? "failed" : "unknown",
     requestId: stringOrNull(result.mutation?.requestId ?? result.requestId ?? result.request_id ?? raw?.error?.data?.requestId),
     stage: stringOrNull(result.stage ?? result.failedStage),
     runId: stringOrNull(result.runId ?? result.run?.id ?? result.task?.run_id ?? result.dispatch?.run_id),
     taskId: stringOrNull(result.taskId ?? result.task?.id ?? result.dispatch?.task_id),
     dispatchId: stringOrNull(result.dispatchId ?? result.dispatch?.id),
     liveness: stringOrNull(result.liveness ?? result.projection?.liveness?.verdict),
-    raw: raw ?? stdout,
+    raw: value,
     error: raw?.ok === false ? String(raw.error?.message ?? failure ?? "Native operation failed") : failure,
   };
 }
@@ -214,7 +225,7 @@ export async function runOrca<T = unknown>(args: string[]): Promise<T> {
   const fullArgs = args.includes("--json") ? args : [...args, "--json"];
   let stdout: string;
   try {
-    const res = await pExecFile("orca", fullArgs, {
+    const res = await pExecFile(process.env.ORCA_CLI_COMMAND ?? (process.env.ORCA_DEV_REPO_ROOT ? "orca-dev" : "orca"), fullArgs, {
       maxBuffer: 32 * 1024 * 1024,
       timeout: 180_000,
     });

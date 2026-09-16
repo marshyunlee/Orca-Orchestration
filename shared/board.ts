@@ -25,6 +25,7 @@ export interface AttemptRef {
 export interface PreviewRef {
   nodeId: string; specDigest: string; graphDigest: string;
   contentPath: string; generatedBy: string; current: boolean;
+  images?: {artifactPath:string;caption:string}[];
 }
 export interface ActionRecord {
   id: string; kind: string; baseRevision: number;
@@ -45,10 +46,15 @@ export interface BoardSnapshot {
   messages: BoardMessage[]; acceptedGraphDigest: string | null;
   acceptedNodeDigests: Record<string,string>;
   history: { deliveryId: string; snapshotPath: string }[];
+  observationError?: string;
+  discussionStatus?: {status:string;cycle:number;round:number;remainingRounds:number;remainingSeconds:number;outstanding:number};
 }
 export interface FileEdit { path: string; baseDigest: string | null; content: string | null }
 export type BoardEdit =
   | { kind: "new-delivery" }
+  | { kind: "reconcile"; targetActionId: string }
+  | { kind: "accept-result"; nodeId: string; attemptId: string }
+  | { kind: "remove-selection"; nodeIds: string[]; edgeIds: string[] }
   | { kind: "add-task"; title: string }
   | { kind: "edit-node"; nodeId: string; title: string; content: NodeContent; assignment: Assignment | null }
   | { kind: "move-node"; nodeId: string; position: { x: number; y: number } }

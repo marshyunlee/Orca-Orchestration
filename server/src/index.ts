@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile, chmod } from "node:fs/promises";
 import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
-import { refreshNativeBoard } from "./nativeObservation.js";
+import { refreshNativeBoard, refreshDiscussionStatus, observationErrors } from "./nativeObservation.js";
 import { createCoordinatorActions } from "./coordinatorActions.js";
 import { createBoardStore } from "./boardStore.js";
 import { fileURLToPath } from "node:url";
@@ -76,7 +76,9 @@ const deliveryTimer=setInterval(()=>{
   if(checkingBoards)return;checkingBoards=true;
   void boardStore.list().then(async boards=>{
     for(const board of boards){
-      try {await refreshNativeBoard(boardStore,board.id);}catch(error){if(!(error instanceof Error) || !error.message.includes("revision conflict"))console.error("Board observation:",String(error));}
+      const observed=await Promise.allSettled([refreshDiscussionStatus(board),refreshNativeBoard(boardStore,board.id)]);
+      const errors=observed.filter(result=>result.status==="rejected").map(result=>String((result as PromiseRejectedResult).reason)).filter(error=>!error.includes("revision conflict"));
+      if(errors.length)observationErrors.set(board.id,errors.join("; "));else observationErrors.delete(board.id);
       const queued=board.actions.find(action=>action.phase==="queued" && action.kind!=="launch" && (action.payload as {delivery?:string})?.delivery==="pending");
       if(queued)try{await coordinatorActions.deliver(board.id,queued.id);}catch(error){console.error("Board delivery:",String(error));}
     }
