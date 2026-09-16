@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import type { BoardStore } from "./boardStore.js";
 import { BoardConflict } from "./boardStore.js";
-import { digestExecutableBoard, digestSpec, digestNodeInput, validateGraph } from "./boardGraph.js";
+import { digestValue, digestExecutableBoard, digestSpec, digestNodeInput, validateGraph } from "./boardGraph.js";
 import { createBoardNode, isRecord, validateContent, validateAssignment, type BoardSnapshot, type MemberRef, type BoardMessage, type BoardNode, type BoardEdge } from "../../shared/board.js";
 import { verifyGroupMember } from "./sessionDiscovery.js";
 import { runOrca } from "./orca.js";
@@ -20,6 +20,7 @@ export interface CoordinatorPort {
   send(member:MemberRef,prompt:string):Promise<unknown>;
 }
 export const coordinatorPort:CoordinatorPort={verify:verifyGroupMember,send:(member,prompt)=>runOrca(["terminal","send","--terminal",member.terminalHandle,"--text",prompt,"--enter","--wait-submit","1"])};
+function actionEventId(actionId:string,event:string):string { return `action-${digestValue({actionId,event})}`; }
 export function createCoordinatorActions(store:BoardStore,port:CoordinatorPort=coordinatorPort) {
   const delivering=new Set<string>();
   async function changeLatest(boardId:string,actionId:string,mutate:(board:BoardSnapshot)=>BoardSnapshot) {
@@ -87,12 +88,12 @@ export function createCoordinatorActions(store:BoardStore,port:CoordinatorPort=c
         ].join("\n");
         const runtime=process.env.ORCA_BOARD_RUNTIME??join(homedir(),".local/state/orca-board");
         const prompt=basePrompt+`\nIf your tool shell lacks inherited Orca identity, append --terminal ${member.terminalHandle} to boardctl. For this server append --token-file ${join(runtime,`token-${process.env.PORT??8787}`)}. This handle is your own selected session; never substitute another.`;
-        await changeLatest(boardId,`${actionId}-sending-${randomUUID()}`,current=>{const item=current.actions.find(item=>item.id===actionId)!;if(!isRecord(item.payload)||item.payload.delivery!=="pending")throw new Error("Action delivery already began");item.payload={...item.payload,delivery:"sending"};return current;});
+        await changeLatest(boardId,actionEventId(actionId,`sending-${randomUUID()}`),current=>{const item=current.actions.find(item=>item.id===actionId)!;if(!isRecord(item.payload)||item.payload.delivery!=="pending")throw new Error("Action delivery already began");item.payload={...item.payload,delivery:"sending"};return current;});
         let receipt:unknown;
         try { receipt=await port.send(member,prompt); }
-        catch(error){await changeLatest(boardId,`${actionId}-delivery-unknown`,current=>{const item=current.actions.find(item=>item.id===actionId)!;item.phase="unknown";item.error=String(error);return current;});return;}
-        const receiptPath=await store.artifact(boardId,`delivery-${actionId}`,JSON.stringify(receipt));
-        await changeLatest(boardId,`${actionId}-delivered`,current=>{
+        catch(error){await changeLatest(boardId,actionEventId(actionId,"delivery-unknown"),current=>{const item=current.actions.find(item=>item.id===actionId)!;item.phase="unknown";item.error=String(error);return current;});return;}
+        const receiptPath=await store.artifact(boardId,actionEventId(actionId,"delivery-receipt"),JSON.stringify(receipt));
+        await changeLatest(boardId,actionEventId(actionId,"delivered"),current=>{
           const item=current.actions.find(item=>item.id===actionId)!;
           item.receiptPath=receiptPath;
           item.requestId=isRecord(receipt)&&isRecord(receipt.mutation)&&typeof receipt.mutation.requestId==="string"?receipt.mutation.requestId:null;
@@ -106,7 +107,7 @@ export function createCoordinatorActions(store:BoardStore,port:CoordinatorPort=c
       const owner=selected && componentActionKinds.includes(selected.kind)?board.nodes.find(node=>node.id===selected.nodeId && !node.removed)?.collaborate?.masterIdentity:board.coordinatorIdentity;
       if(identity!==owner)throw new Error("Only this action's selected coordinator or component master may claim it");
       await port.verify(board.members.find(member=>member.identity===identity)!);
-      return store.update(boardId,board.revision,`${actionId}-claim`,current=>{
+      return store.update(boardId,board.revision,actionEventId(actionId,"claim"),current=>{
         const action=current.actions.find(action=>action.id===actionId);
         if(!action || (action.phase!=="queued" && !(action.phase==="unknown" && isRecord(action.payload) && !action.payload.operationToken && !action.payload.effectToken && !action.payload.membershipToken)))throw new Error("Action is not available to claim; inspect its receipt");
         action.phase="claimed";action.actor=identity;return current;
@@ -118,7 +119,7 @@ export function createCoordinatorActions(store:BoardStore,port:CoordinatorPort=c
       if(!evidence.trim())throw new Error("Action outcome evidence required");
       await port.verify(board.members.find(member=>member.identity===identity)!);
       const receiptPath=await store.artifact(boardId,`component-action-${randomUUID()}`,JSON.stringify({nodeId,actionId,identity,evidence,nodeRevision:node.revision}));
-      return store.update(boardId,board.revision,`${actionId}-finished`,current=>{const selected=current.actions.find(item=>item.id===actionId)!;selected.phase="applied";selected.receiptPath=receiptPath;
+      return store.update(boardId,board.revision,actionEventId(actionId,"finished"),current=>{const selected=current.actions.find(item=>item.id===actionId)!;selected.phase="applied";selected.receiptPath=receiptPath;
         if(selected.kind==="component-question" && isRecord(selected.payload) && isRecord(selected.payload.data)){const message=current.messages.find(message=>message.componentNodeId===nodeId && message.nativeMessageId===(selected.payload as {data:{messageId:unknown}}).data.messageId);if(message)message.answered=true;}
         return current;});
     },
@@ -134,7 +135,7 @@ export function createCoordinatorActions(store:BoardStore,port:CoordinatorPort=c
       }
       const proposalPath=await store.artifact(boardId,`proposal-${randomUUID()}`,JSON.stringify(proposal));
       try {
-        return await store.update(boardId,baseRevision,`${actionId}-publish`,board=>{
+        return await store.update(boardId,baseRevision,actionEventId(actionId,"publish"),board=>{
           const action=board.actions.find(action=>action.id===actionId);
           if(identity!==board.coordinatorIdentity || !action || action.phase!=="claimed" || action.actor!==identity)throw new Error("Proposal requires this coordinator's claimed action");
           const root=board.nodes.find(node=>node.kind==="run")!;
