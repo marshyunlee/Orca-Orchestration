@@ -31,9 +31,13 @@ test('component evidence keeps its Run owner and reuses only exact gate approval
   const crossInterface=await service.approve(board.id,'component',state.gateDigest,{kind:'chat',reference:'/fixture/user-answer',response:'Approve gate'},'approve-chat');
   assert.equal(crossInterface.components.component.approvals.length,1);
   manifest.phase='reviewing';
+  manifest.repair_policy={max_rounds:2,cycle_started_at:'2026-09-16T06:00:00Z'};
   board=await service.refresh(board.id,'component',master.identity,'progress');
   assert.equal(board.components.component.gateDigest,state.gateDigest);
   assert.equal(service.currentApproval(board,'component')?.digest,state.gateDigest);
+  manifest.repair_policy={max_rounds:3,cycle_started_at:'2026-09-16T06:00:00Z'};
+  board=await service.refresh(board.id,'component',master.identity,'revised-repair-limit');
+  assert.equal(service.currentApproval(board,'component'),null);
   manifest.gate_commands=['npm test','npm run integration'];
   board=await service.refresh(board.id,'component',master.identity,'revised-gate');
   assert.notEqual(board.components.component.gateDigest,state.gateDigest);

@@ -77,7 +77,7 @@ export function readGatePackage(manifest: Record<string,unknown>): GatePackage {
   if (!commands.length) throw new Error('Concrete gate commands required');
   return {baselineSha:requiredText(manifest.baseline_sha,'Baseline'),overlayDigest:requiredText(manifest.gate_revision,'Gate revision'),commands,
     setup:manifest.setup??{},humanChecks:textList(manifest.human_checks,'Human checks'),selectionPolicy:textList(manifest.selection_policy,'Selection policy'),
-    deliveryScope:String(manifest.delivery_scope),featureCloseRequested:manifest.feature_close_requested,repairPolicy:manifest.repair_policy};
+    deliveryScope:String(manifest.delivery_scope),featureCloseRequested:manifest.feature_close_requested,repairPolicy:Object.fromEntries(Object.entries(manifest.repair_policy).filter(([key])=>key!=='cycle_started_at'))};
 }
 export function projectComponentTasks(manifest: Record<string,unknown>): ComponentTask[] {
   const tasks=isRecord(manifest.tasks)?manifest.tasks:{};
