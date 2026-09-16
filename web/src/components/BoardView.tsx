@@ -2,6 +2,7 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import type { BoardSnapshot, BoardEdit, NodeContent, Assignment } from "../../../shared/board.js";
 import { boardRequest } from "../api.js";
 import { createBoardViewState, reduceBoardView } from "../boardState.js";
+import { GroupMembers } from "./GroupMembers.js";
 import { GroupTabs } from "./GroupTabs.js";
 import { BoardCanvas } from "./DagView.js";
 import { TaskInspector } from "./TaskInspector.js";
@@ -69,7 +70,7 @@ export function BoardView({onHistory}:{onHistory:()=>void}) {
     {newGroup && <form className="new-group" onSubmit={event=>{event.preventDefault();void createGroup();}}><label>Group name<input autoFocus value={title} onChange={event=>setTitle(event.target.value)}/></label><button disabled={busy || !title.trim()}>Create group</button><button type="button" onClick={()=>setNewGroup(false)}>Cancel</button></form>}
     {connectionError && <p role="alert" className="board-error">{connectionError}</p>}
     {board?<><header className="board-header"><h2>{board.title}</h2><span>{board.specApproval?"Spec approved":"Spec draft"} · Revision {board.revision}</span><span>{board.members.length} sessions</span></header>
-      <div className="board-toolbar"><button disabled={busy} onClick={()=>void edit({kind:"add-task",title:"New task"})}>+ Add task</button><button disabled={busy} onClick={()=>void edit({kind:"review-graph",body:""})}>Review graph / Update preview</button><button disabled={busy || !board.preview} onClick={()=>void edit({kind:"start"})}>Start</button><button disabled={busy} onClick={()=>void edit({kind:board.pauseNewStarts?"resume":"pause"})}>{board.pauseNewStarts?"Resume":"Pause new starts"}</button>{busy && <span>Saving…</span>}</div>
+      <GroupMembers key={board.id} board={board} onEdit={operation=>void edit(operation)}/><div className="board-toolbar"><button disabled={busy} onClick={()=>void edit({kind:"add-task",title:"New task"})}>+ Add task</button><button disabled={busy} onClick={()=>void edit({kind:"review-graph",body:""})}>Review graph / Update preview</button><button disabled={busy || !board.preview} onClick={()=>void edit({kind:"start"})}>Start</button><button disabled={busy} onClick={()=>void edit({kind:board.pauseNewStarts?"resume":"pause"})}>{board.pauseNewStarts?"Resume":"Pause new starts"}</button>{busy && <span>Saving…</span>}</div>
       {state.errors[board.id] && <p role="alert" className="board-error">{state.errors[board.id]}</p>}
       <div className="board-workspace"><div className="board-canvas"><BoardCanvas key={board.id} board={board} selectedId={node?.id??null} onSelect={nodeId=>dispatch({type:"select-node",nodeId})} onEdit={operation=>void edit(operation)}/></div>
         {node && <aside className="board-inspector">{node.kind==="preview"?<PreviewPanel node={node} onUpdate={()=>void edit({kind:"review-graph",body:""})}/>:<><TaskInspector board={board} node={node} drafts={state.drafts} onDraft={(section,value)=>dispatch({type:"edit-draft",boardId:board.id,nodeId:node.id,section,value})} onSave={saveNode} onDiscard={()=>dispatch({type:"discard-drafts",boardId:board.id,nodeId:node.id})} error={state.errors[board.id]}/>{node.kind==="run" && <RunPanel key={board.id} board={board} onEdit={operation=>void edit(operation)}/>}</>}</aside>}
