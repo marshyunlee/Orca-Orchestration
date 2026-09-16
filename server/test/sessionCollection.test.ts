@@ -62,3 +62,13 @@ test('refresh reloads saved context while reusing an outstanding summary request
   const current=await store.read(board.id);assert.equal(current.collection.requests.length,1);assert.match(await store.readArtifact(board.id,current.collection.requests[0].savedPath!),/new/);
  }finally{await store.close();await rm(root,{recursive:true,force:true});}
 });
+
+test('delivery receipt replay is idempotent after a lost HTTP acknowledgment',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'collection-receipt-')),store=await createBoardStore(root);
+ try{
+  const board=await store.create({title:'Group',members:[owner,member],coordinatorIdentity:owner.identity},'create');
+  const collection=createSessionCollection(store,{verify:async value=>value,context:async()=>({available:false,capturedAt:null,references:[],text:'',error:null}),discover:async()=>({items:[],tasks:[]})});
+  await collection.begin(board.id);const entry=(await store.read(board.id)).collection.requests[1];await collection.prepareDelivery(board.id,entry.id,owner.identity);
+  const receipt={phase:'applied' as const,requestId:'request',raw:{ok:true},error:null};const first=await collection.recordDelivery(board.id,entry.id,owner.identity,receipt);const replay=await collection.recordDelivery(board.id,entry.id,owner.identity,receipt);assert.equal(replay.revision,first.revision);
+ }finally{await store.close();await rm(root,{recursive:true,force:true});}
+});

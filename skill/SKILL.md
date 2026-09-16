@@ -63,7 +63,7 @@ Use stable author-assigned item IDs for narrative work. Native items must match 
 
 For a stale owner action, `owner-reconcile --action <id> --evidence <text>` records the original owner investigation without replaying it; use it only after checking actual effects.
 
-An uncertain send stays unknown. `collection-reconcile --request <id>` inspects its original native request receipt; it never silently sends a second prompt. No request ID means investigate original native evidence before recovery. Enqueue is not acknowledgment, and no timer proves a safe checkpoint.
+An uncertain send stays unknown. `collection-reconcile --request <id>` inspects its original native request receipt; it never silently sends a second prompt. The CLI saves the native send receipt before posting it back to the server; collection-reconcile can recover that receipt after a lost HTTP acknowledgment. If neither the request ID nor the saved receipt exists, investigate original native evidence before recovery. Enqueue is not acknowledgment, and no timer proves a safe checkpoint.
 
 Imported tasks keep their original owner and Run. Include the actual controlling owner in the group before using controls. An owner processes `import-control` through `owner-claim --action <id>`, handles its frozen node revision and Task/Dispatch within its own session, then records `owner-finish --action <id> --stage acknowledged|applied --evidence <text>`. Acknowledged means read; applied means the requested control was actually handled, supported by native receipts or attributed cooperative evidence. Neither receipt alone settles the task.
 

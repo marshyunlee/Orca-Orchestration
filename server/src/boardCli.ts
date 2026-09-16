@@ -126,14 +126,20 @@ Use --terminal <your-own-handle> when the tool shell lacks inherited Orca identi
     if(!entry)throw new Error("Collection request not found");
     let receipt;
     if(args[0]==="collection-reconcile"){
-      if(!entry.requestId)throw new Error("No native request identity was received; inspect original send evidence, do not resend");
+      if(!entry.requestId){
+        const saved=await request<{boardRoot:string}>("/api/integrations");
+        const recovered=JSON.parse(await readFile(join(saved.boardRoot,id,"artifacts",`${entry.id}-native-receipt`),"utf8"));
+        console.log(JSON.stringify(await request(`/api/boards/${id}/collection/delivery`,{identity:caller.identity,requestId:entry.id,receipt:recovered})));return;
+      }
       const inspected=await executeNativeOperation({kind:"inspect-request",requestId:entry.requestId},caller,{callerTerminal:callerHandle});
       const result=(inspected.raw as {result?:{state?:string;receipt?:unknown}}).result;
       if(inspected.phase!=="applied" || result?.state!=="completed" || !result.receipt)throw new Error("Original request has not completed; keep the request pending");
       receipt=normalizeNativeReceipt({ok:true,result:result.receipt});receipt.requestId??=entry.requestId;
     }else{
+      const saved=await request<{boardRoot:string}>("/api/integrations");
       const operation=await request<NativeOperation>(`/api/boards/${id}/collection/operation`,{identity:caller.identity,requestId:entry.id});
       receipt=await executeNativeOperation(operation,caller,{callerTerminal:callerHandle});
+      await writeFile(join(saved.boardRoot,id,"artifacts",`${entry.id}-native-receipt`),JSON.stringify(receipt),{flag:"wx",mode:0o600});
     }
     console.log(JSON.stringify(await request(`/api/boards/${id}/collection/delivery`,{identity:caller.identity,requestId:entry.id,receipt})));return;
   }

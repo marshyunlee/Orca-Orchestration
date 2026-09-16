@@ -63,7 +63,9 @@ export function createSessionCollection(store:BoardStore,port=defaultPort){
   },
   async recordDelivery(boardId:string,requestId:string,identity:string,receipt:Pick<NativeReceipt,'phase'|'requestId'|'raw'|'error'>):Promise<BoardSnapshot>{
    const board=await store.read(boardId);await verifyCoordinator(board,identity);
-   const request=board.collection.requests.find(request=>request.id===requestId);if(!request || !['sending','unknown'].includes(request.delivery))throw new Error('No admitted summary delivery');
+   const request=board.collection.requests.find(request=>request.id===requestId);
+   if(request?.receiptPath && await store.readArtifact(boardId,request.receiptPath)===JSON.stringify(receipt))return board;
+   if(!request || !['sending','unknown'].includes(request.delivery))throw new Error('No admitted summary delivery');
    const path=await store.artifact(boardId,`collection-receipt-${randomUUID()}`,JSON.stringify(receipt));
    return changeCollectedBoard(store,boardId,`collection-delivered-${randomUUID()}`,current=>{const entry=current.collection.requests.find(entry=>entry.id===requestId)!;entry.delivery=receipt.phase==='applied'?'sent':'unknown';entry.requestId=receipt.requestId??entry.requestId;entry.receiptPath=path;return current;});
   },
