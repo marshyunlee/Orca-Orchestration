@@ -104,3 +104,5 @@ Context and receipts persist with the board under `~/work-vault/sessions/orca-bo
 Human steps: select sessions/coordinator, review overlapping source edits, and include the task's actual owner if it is outside the group. The server remains headless.
 
 Questions answered through the board retain owner receipts. Native read-only mailbox inspection does not expose external answer state; settled tasks disable further replies and retain the question as history without claiming an observed answer.
+
+Agent CLI supervision: `boardctl status --board <id>` returns compact state. Add `--compact` to mutation commands to omit repeated content/history from returned boards. Full `read` and default command output remain backward compatible. Ready owner actions may record applied evidence directly; acknowledgment is useful only while handling is pending.

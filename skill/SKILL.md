@@ -18,7 +18,7 @@ boardctl resume --board <exact-board-id>
 
 `create` reads one session inventory, includes the actual caller as coordinator, creates the same board the UI shows, and queues existing-session collection. Names select exact tab labels; duplicate labels return source-qualified identities for the human to choose. Reuse the action ID only for the same request. `resume --title <exact-title>` is allowed only for a unique match; otherwise use the ID. Resume verifies the caller's current coordinator/component-master/owner/member role and reads existing state; it does not create a Run or grant an additional group round. Read queued actions and continue the authorized request in that role.
 
-For a board request, use the exact board ID, action ID, server URL, and `boardctl` path in the request. Run `boardctl --help`, then `read --board <id> --url <url>`. Commands run inside the selected coordinator session, whose source-qualified identity, terminal incarnation and host must match the board. When the tool shell does not inherit Orca identity, pass --terminal <your-own-handle>; native inventory still verifies its current source, incarnation and host. A nondefault runtime also needs --token-file <private-runtime/token-PORT>. Never select another session to impersonate it.
+For a board request, use the exact board ID, action ID, server URL, and `boardctl` path in the request. Read `boardctl --help` once, then `status --board <id> --url <url>`. Fetch `read` only for content needed by the action. Commands run inside the selected coordinator session, whose source-qualified identity, terminal incarnation and host must match the board. When the tool shell does not inherit Orca identity, pass --terminal <your-own-handle>; native inventory still verifies its current source, incarnation and host. A nondefault runtime also needs --token-file <private-runtime/token-PORT>. Never select another session to impersonate it.
 
 Ordinary human operation is through the web UI; agents use the packaged CLI. In utils the launcher is `node ~/.orca/orca-dag/start.mjs`, normally at `http://127.0.0.1:8787`. Other installations use their built entrypoint. Read `orca skills get orchestration` before native coordination, with the installed selected executable. Load conditional references for recovery, placement, or mailbox details only when needed.
 
@@ -125,3 +125,23 @@ For contract repairs, preserve the accepted contract and add related work. For c
 Finish with actual outcomes, tested evidence, unresolved choices and each worker's ownership disposition. Keep artifacts in work-vault. Report actual token usage only when available; never infer savings from elapsed time.
 
 Questions answered through the board retain owner receipts. Native read-only mailbox inspection does not expose external answer state; settled tasks disable further replies and retain the question as history without claiming an observed answer.
+
+## Supervision without repeated narration
+
+Use `status --board <id>` for compact supervision and append `--compact` to
+mutation commands. These return revisions, ownership, pending actions/questions,
+source bindings and evidence paths without replaying node content or old discussion.
+`read` and commands without `--compact` preserve full JSON output for existing
+consumers. Full node content, graph and component state remain available via read.
+
+Claim once and handle the action. Publish applied evidence directly when handling
+finishes promptly; a separate acknowledged stage is useful only while application
+is still pending. Never equate a delivery receipt with approval or task completion.
+Do not start another collection or synthesis round merely to acknowledge a reply;
+collect again for requested refresh, changed work or missing evidence needed by a
+real decision. Continue independent approved work while summaries arrive.
+
+Before waiting, process queued actions. Board requests send native notifications;
+use the local orchestration event waiter for mail, then inspect current actions on
+wake. Keep a single waiter and obey host responsiveness limits. Native mailbox
+acknowledgments still require processing every message and settling ownership.

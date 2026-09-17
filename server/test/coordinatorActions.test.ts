@@ -37,3 +37,16 @@ test("queued requests precede delivery; duplicate requests and stale proposals p
   assert.equal(image.mimeType,"image/png");assert.equal(image.caption,"Mockup");assert.equal(published.attempts.length,0);
  }finally{await store.close();await rm(root,{recursive:true,force:true});}
 });
+
+test('action delivery includes only the requested workflow and compact CLI guidance',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'action-brief-')),store=await createBoardStore(root);let prompt='';
+ const member={identity:'codex:coordinator',source:'codex' as const,sessionId:'coordinator',tabId:'tab',tabName:'Coordinator',terminalHandle:'term',incarnationId:'inc',hostId:'local',workspacePath:'/tmp'};
+ try{
+  const board=await store.create({title:'Board',members:[member],coordinatorIdentity:member.identity},'create');
+  const actions=createCoordinatorActions(store,{verify:async value=>value,send:async(_member,body)=>{prompt=body;return {accepted:true};}});
+  await actions.queue(board.id,board.revision,'collect','collect-work','Collect existing work',{});
+  await actions.deliver(board.id,'collect');
+  assert.match(prompt,/collection-send/);assert.match(prompt,/--compact/);
+  assert.doesNotMatch(prompt,/For discuss:|For generate-tasks:|For review-graph:/);
+ }finally{await store.close();await rm(root,{recursive:true,force:true});}
+});
